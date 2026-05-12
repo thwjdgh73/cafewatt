@@ -3,15 +3,24 @@ import pandas as pd
 import requests
 from datetime import time
 
+try:
+    import folium
+    from streamlit_folium import st_folium
+    FOLIUM_AVAILABLE = True
+except Exception:
+    FOLIUM_AVAILABLE = False
+
+
 st.set_page_config(
     page_title="CafeWatt",
     page_icon="☕",
     layout="wide"
 )
 
-# -----------------------------
+
+# =============================
 # 기본 스타일
-# -----------------------------
+# =============================
 
 st.markdown("""
 <style>
@@ -23,7 +32,7 @@ st.markdown("""
 .sub-title {
     font-size: 16px;
     color: #666;
-    margin-bottom: 24px;
+    margin-bottom: 20px;
 }
 .card {
     padding: 18px;
@@ -39,6 +48,14 @@ st.markdown("""
 .metric-value {
     font-size: 26px;
     font-weight: 800;
+    line-height: 1.25;
+    word-break: keep-all;
+}
+.metric-value-small {
+    font-size: 21px;
+    font-weight: 800;
+    line-height: 1.35;
+    word-break: keep-all;
 }
 .good {
     color: #1f7a3f;
@@ -56,14 +73,21 @@ st.markdown("""
     font-size: 13px;
     color: #777;
 }
+.location-box {
+    padding: 14px 16px;
+    border-radius: 14px;
+    background-color: #fff7ec;
+    border: 1px solid #f1dfc6;
+    margin-top: 10px;
+    margin-bottom: 10px;
+}
 </style>
 """, unsafe_allow_html=True)
 
 
-# -----------------------------
+# =============================
 # 기준 데이터
-# 실제 서비스에서는 공공데이터와 실제 사용자 데이터로 교체
-# -----------------------------
+# =============================
 
 BENCHMARKS = {
     "일반 카페": {
@@ -87,9 +111,9 @@ BENCHMARKS = {
 }
 
 
-# -----------------------------
-# 함수
-# -----------------------------
+# =============================
+# 표시 함수
+# =============================
 
 def won(value):
     return f"{int(value):,}원"
@@ -127,11 +151,193 @@ def score_from_ratio(ratio):
         return 42
 
 
+def metric_card(title, value, caption=None, small=False):
+    value_class = "metric-value-small" if small else "metric-value"
+
+    caption_html = ""
+    if caption:
+        caption_html = f"<p class='small-text'>{caption}</p>"
+
+    st.markdown(f"""
+    <div class="card">
+        <div class="metric-title">{title}</div>
+        <div class="{value_class}">{value}</div>
+        {caption_html}
+    </div>
+    """, unsafe_allow_html=True)
+
+
+# =============================
+# 세션 기본값
+# =============================
+
+if "selected_location_label" not in st.session_state:
+    st.session_state["selected_location_label"] = "서울특별시 강남구 테헤란로"
+
+if "latitude" not in st.session_state:
+    st.session_state["latitude"] = 37.5013
+
+if "longitude" not in st.session_state:
+    st.session_state["longitude"] = 127.0396
+
+
+# =============================
+# Kakao API Key 정리 함수
+# =============================
+
+def get_clean_kakao_key():
+    """
+    Kakao REST API Key를 안전하게 가져옵니다.
+
+    중요:
+    secrets.toml에는 실제 REST API Key만 넣어야 합니다.
+    KakaoAK는 코드에서 자동으로 붙입니다.
+    """
+
+    raw_key = st.secrets.get("KAKAO_REST_API_KEY", "")
+
+    if raw_key is None:
+        raw_key = ""
+
+    key = str(raw_key).strip()
+
+    if key.startswith("KakaoAK"):
+        key = key.replace("KakaoAK", "", 1).strip()
+
+    if not key:
+        return None, "Kakao REST API Key가 비어 있습니다. .streamlit/secrets.toml 또는 Streamlit Cloud Secrets를 확인하세요."
+
+    try:
+        key.encode("ascii")
+    except UnicodeEncodeError:
+        return None, "Kakao REST API Key에 한글 또는 잘못된 문자가 들어 있습니다. 실제 REST API Key만 입력해야 합니다."
+
+    return key, None
+
+
+# =============================
+# 카카오 주소 검색 API
+# =============================
+
+def get_coordinates_from_kakao(address_query):
+    """
+    카카오 Local API를 사용해 한국 주소를 위도와 경도로 변환합니다.
+    """
+
+    if not address_query or not address_query.strip():
+        return {
+            "success": False,
+            "message": "주소를 입력하세요.",
+            "results": []
+        }
+
+    kakao_key, key_error = get_clean_kakao_key()
+
+    if key_error:
+        return {
+            "success": False,
+            "message": key_error,
+            "results": []
+        }
+
+    url = "https://dapi.kakao.com/v2/local/search/address.json"
+
+    headers = {
+        "Authorization": f"KakaoAK {kakao_key}"
+    }
+
+    params = {
+        "query": address_query.strip(),
+        "analyze_type": "similar"
+    }
+
+    try:
+        response = requests.get(
+            url,
+            headers=headers,
+            params=params,
+            timeout=10
+        )
+
+        if response.status_code == 401:
+            return {
+                "success": False,
+                "message": "Kakao API 인증에 실패했습니다. REST API Key가 맞는지 확인하세요.",
+                "results": []
+            }
+
+        if response.status_code == 403:
+            return {
+                "success": False,
+                "message": "Kakao API 접근이 거부되었습니다. Kakao Developers에서 Local API 사용 설정을 확인하세요.",
+                "results": []
+            }
+
+        response.raise_for_status()
+        data = response.json()
+
+        documents = data.get("documents", [])
+
+        if not documents:
+            return {
+                "success": False,
+                "message": "검색 결과가 없습니다. 도로명 주소나 구체적인 주소로 다시 입력하세요.",
+                "results": []
+            }
+
+        results = []
+
+        for item in documents:
+            address_name = item.get("address_name", "")
+            road_address = item.get("road_address")
+            address = item.get("address")
+
+            display_address = address_name
+
+            if road_address and road_address.get("address_name"):
+                display_address = road_address.get("address_name")
+            elif address and address.get("address_name"):
+                display_address = address.get("address_name")
+
+            longitude = float(item.get("x"))
+            latitude = float(item.get("y"))
+
+            results.append({
+                "label": display_address,
+                "latitude": latitude,
+                "longitude": longitude
+            })
+
+        return {
+            "success": True,
+            "message": "검색 성공",
+            "results": results
+        }
+
+    except requests.exceptions.RequestException as e:
+        return {
+            "success": False,
+            "message": f"Kakao API 요청 실패: {e}",
+            "results": []
+        }
+
+    except Exception as e:
+        return {
+            "success": False,
+            "message": f"주소 검색 처리 중 오류: {e}",
+            "results": []
+        }
+
+
+# =============================
+# Open Meteo 날씨 API
+# =============================
+
 def get_weather_open_meteo(latitude, longitude):
     """
     Open Meteo API에서 현재 외기온도, 외기습도, 풍속을 가져옵니다.
-    API key 없이 사용 가능합니다.
     """
+
     url = "https://api.open-meteo.com/v1/forecast"
 
     params = {
@@ -167,6 +373,64 @@ def get_weather_open_meteo(latitude, longitude):
             "raw": None
         }
 
+
+# =============================
+# 지도 함수
+# =============================
+
+def show_location_map(latitude, longitude, label):
+    """
+    지도 표시 및 클릭 위치 반영.
+    streamlit-folium이 없으면 st.map으로 대체합니다.
+    """
+
+    if FOLIUM_AVAILABLE:
+        m = folium.Map(
+            location=[latitude, longitude],
+            zoom_start=16
+        )
+
+        folium.Marker(
+            [latitude, longitude],
+            tooltip=label,
+            popup=label
+        ).add_to(m)
+
+        map_data = st_folium(
+            m,
+            width=None,
+            height=360,
+            key="cafewatt_map"
+        )
+
+        clicked = map_data.get("last_clicked") if map_data else None
+
+        if clicked:
+            clicked_lat = float(clicked["lat"])
+            clicked_lng = float(clicked["lng"])
+
+            lat_changed = abs(clicked_lat - st.session_state["latitude"]) > 0.000001
+            lng_changed = abs(clicked_lng - st.session_state["longitude"]) > 0.000001
+
+            if lat_changed or lng_changed:
+                st.session_state["latitude"] = clicked_lat
+                st.session_state["longitude"] = clicked_lng
+                st.session_state["selected_location_label"] = "지도에서 선택한 위치"
+                st.rerun()
+
+    else:
+        map_df = pd.DataFrame([{
+            "lat": latitude,
+            "lon": longitude
+        }])
+
+        st.map(map_df, latitude="lat", longitude="lon", zoom=15)
+        st.info("지도 클릭 기능을 사용하려면 requirements.txt에 folium, streamlit-folium을 추가하세요.")
+
+
+# =============================
+# 계약전력 진단 함수
+# =============================
 
 def contract_power_diagnosis(store_type, contract_power, estimated_peak_kw):
     benchmark = BENCHMARKS[store_type]
@@ -210,6 +474,10 @@ def contract_power_diagnosis(store_type, contract_power, estimated_peak_kw):
     )
 
 
+# =============================
+# 추천 조치 함수
+# =============================
+
 def calculate_recommendations(
     store_type,
     monthly_kwh,
@@ -220,7 +488,12 @@ def calculate_recommendations(
     outdoor_temp,
     plug_kwh_month,
     after_hours_ratio,
-    contract_status
+    contract_status,
+    has_showcase,
+    has_ice_machine,
+    has_oven,
+    refrigerator_count,
+    ac_count
 ):
     recommendations = []
 
@@ -252,21 +525,37 @@ def calculate_recommendations(
             "계약전력은 기본요금과 운영 안정성에 영향을 줍니다. 최근 최대 사용 패턴을 확인한 뒤 조정 여부를 검토하세요."
         )
 
-    if store_type == "베이커리 카페":
+    if has_showcase or refrigerator_count >= 2:
         recommendations.append(
-            "베이커리 카페는 오븐, 발효기, 냉동고, 냉방이 동시에 작동할 때 피크가 커질 수 있습니다. 오븐 예열과 냉방 피크 시간이 겹치지 않도록 운영하세요."
+            "쇼케이스나 냉장 장비가 많은 매장은 24시간 전력 사용 비중이 커질 수 있습니다. 냉장고 뒤쪽 방열 공간, 문 패킹, 설정온도를 점검하세요."
         )
-    else:
+
+    if has_ice_machine:
         recommendations.append(
-            "일반 카페는 제빙기, 쇼케이스, 냉장고, 냉방기가 주요 전력 원인입니다. 먼저 24시간 작동 장비의 상태를 확인하세요."
+            "제빙기는 여름철 전력 사용 증가에 영향을 줄 수 있습니다. 폐점 후 운전 상태와 주변 온도를 확인하세요."
+        )
+
+    if has_oven or store_type == "베이커리 카페":
+        recommendations.append(
+            "오븐과 냉방이 동시에 작동하면 피크 전력이 커질 수 있습니다. 오븐 예열과 냉방 피크 시간이 겹치지 않도록 운영하세요."
+        )
+
+    if ac_count >= 2:
+        recommendations.append(
+            "에어컨이 여러 대인 경우 동시에 강하게 켜기보다 구역별로 순차 운전하면 피크 부담을 줄일 수 있습니다."
+        )
+
+    if not recommendations:
+        recommendations.append(
+            "현재 입력값 기준으로 큰 이상 신호는 강하지 않습니다. 월별 사용량과 실내온도 변화를 계속 기록하면 더 정확한 진단이 가능합니다."
         )
 
     return recommendations[:4]
 
 
-# -----------------------------
+# =============================
 # 헤더
-# -----------------------------
+# =============================
 
 st.markdown('<div class="main-title">☕ CafeWatt</div>', unsafe_allow_html=True)
 st.markdown(
@@ -274,12 +563,95 @@ st.markdown(
     unsafe_allow_html=True
 )
 
+st.info(
+    "CafeWatt는 전기요금 고지서의 월 사용량과 요금, 매장 정보, 날씨 데이터를 바탕으로 "
+    "같은 업종과 규모 대비 전기를 많이 쓰는지 간단히 진단하는 MVP 앱입니다."
+)
 
-# -----------------------------
+
+# =============================
+# 메인 화면: 주소 기반 날씨 API
+# =============================
+
+st.subheader("매장 위치와 현재 날씨")
+
+weather_input_col, weather_result_col = st.columns([1.05, 1.95])
+
+with weather_input_col:
+    address_query = st.text_input(
+        "매장 주소",
+        value=st.session_state["selected_location_label"],
+        help="예시: 서울특별시 강남구 테헤란로, 서울 마포구 홍익로, 부산 해운대구"
+    )
+
+    search_weather = st.button("주소로 위치와 날씨 불러오기", use_container_width=True)
+
+    if search_weather:
+        geo_data = get_coordinates_from_kakao(address_query)
+
+        if geo_data["success"] and geo_data["results"]:
+            first_result = geo_data["results"][0]
+
+            st.session_state["selected_location_label"] = first_result["label"]
+            st.session_state["latitude"] = first_result["latitude"]
+            st.session_state["longitude"] = first_result["longitude"]
+
+            st.success("주소 검색 성공")
+            st.rerun()
+
+        else:
+            st.warning(f"주소를 찾지 못했습니다. {geo_data['message']}")
+
+    st.markdown(f"""
+    <div class="location-box">
+        <b>현재 기준 위치</b><br>
+        {st.session_state["selected_location_label"]}<br>
+        <span class="small-text">
+        위도: {st.session_state["latitude"]:.6f}<br>
+        경도: {st.session_state["longitude"]:.6f}
+        </span>
+    </div>
+    """, unsafe_allow_html=True)
+
+latitude = st.session_state["latitude"]
+longitude = st.session_state["longitude"]
+selected_location_label = st.session_state["selected_location_label"]
+
+weather_data = get_weather_open_meteo(latitude, longitude)
+
+outdoor_temp = 28.0
+outdoor_humidity = 60
+wind_speed = 0
+
+with weather_result_col:
+    map_col, current_weather_col = st.columns([1.25, 1])
+
+    with map_col:
+        show_location_map(latitude, longitude, selected_location_label)
+
+    with current_weather_col:
+        if weather_data["success"] and weather_data["temperature"] is not None:
+            outdoor_temp = float(weather_data["temperature"])
+            outdoor_humidity = float(weather_data["humidity"]) if weather_data["humidity"] is not None else 55
+            wind_speed = float(weather_data["wind_speed"]) if weather_data["wind_speed"] is not None else 0
+
+            metric_card("현재 외기온도", f"{outdoor_temp:.1f}°C")
+            metric_card("현재 외기습도", f"{outdoor_humidity:.0f}%")
+            metric_card("풍속", f"{wind_speed:.1f} m/s")
+
+            st.caption(f"날씨 기준 위치: {selected_location_label}")
+
+        else:
+            st.warning("날씨 데이터를 불러오지 못했습니다. 기본값을 사용합니다.")
+
+st.divider()
+
+
+# =============================
 # 사이드바 입력
-# -----------------------------
+# =============================
 
-st.sidebar.header("매장 정보 입력")
+st.sidebar.header("1. 매장 기본 정보")
 
 store_type = st.sidebar.selectbox(
     "업종 선택",
@@ -302,12 +674,15 @@ close_time = st.sidebar.time_input("마감 시간", value=time(22, 0))
 business_days = st.sidebar.slider("월 영업일수", 15, 31, 28)
 
 open_hours = close_time.hour + close_time.minute / 60 - (open_time.hour + open_time.minute / 60)
+
 if open_hours <= 0:
     open_hours = 12
 
 monthly_hours = open_hours * business_days
 
 st.sidebar.divider()
+
+st.sidebar.header("2. 전기요금 정보")
 
 monthly_kwh = st.sidebar.number_input(
     "월 전력사용량",
@@ -338,57 +713,25 @@ contract_power = st.sidebar.number_input(
 
 st.sidebar.divider()
 
-st.sidebar.header("실내환경")
+st.sidebar.header("3. 카페 장비 정보")
+
+has_showcase = st.sidebar.checkbox("쇼케이스 있음", value=True)
+has_ice_machine = st.sidebar.checkbox("제빙기 있음", value=True)
+has_oven = st.sidebar.checkbox("오븐 있음", value=(store_type == "베이커리 카페"))
+
+refrigerator_count = st.sidebar.slider("냉장고 또는 냉동고 개수", 0, 10, 2)
+ac_count = st.sidebar.slider("에어컨 대수", 0, 10, 2)
+
+st.sidebar.divider()
+
+st.sidebar.header("4. 실내환경")
 
 indoor_temp = st.sidebar.slider("영업시간 평균 실내온도", 18.0, 32.0, 25.5, 0.5)
 indoor_humidity = st.sidebar.slider("평균 실내습도", 20, 90, 55)
 
 st.sidebar.divider()
 
-st.sidebar.header("날씨 API")
-
-use_weather_api = st.sidebar.checkbox("현재 날씨 자동 불러오기", value=True)
-
-latitude = st.sidebar.number_input(
-    "위도",
-    value=37.5665,
-    format="%.6f",
-    help="기본값은 서울시청 기준입니다."
-)
-
-longitude = st.sidebar.number_input(
-    "경도",
-    value=126.9780,
-    format="%.6f",
-    help="기본값은 서울시청 기준입니다."
-)
-
-weather_data = None
-
-if use_weather_api:
-    weather_data = get_weather_open_meteo(latitude, longitude)
-
-    if weather_data["success"] and weather_data["temperature"] is not None:
-        outdoor_temp = float(weather_data["temperature"])
-        outdoor_humidity = float(weather_data["humidity"]) if weather_data["humidity"] is not None else 55
-        wind_speed = float(weather_data["wind_speed"]) if weather_data["wind_speed"] is not None else 0
-
-        st.sidebar.success(
-            f"현재 외기온도 {outdoor_temp:.1f}°C / 외기습도 {outdoor_humidity:.0f}%"
-        )
-    else:
-        st.sidebar.warning("날씨 데이터를 불러오지 못했습니다. 수동 입력값을 사용하세요.")
-        outdoor_temp = st.sidebar.slider("평균 외기온도", 0.0, 38.0, 28.0, 0.5)
-        outdoor_humidity = st.sidebar.slider("평균 외기습도", 10, 100, 60)
-        wind_speed = 0
-else:
-    outdoor_temp = st.sidebar.slider("평균 외기온도", 0.0, 38.0, 28.0, 0.5)
-    outdoor_humidity = st.sidebar.slider("평균 외기습도", 10, 100, 60)
-    wind_speed = 0
-
-st.sidebar.divider()
-
-st.sidebar.header("스마트플러그 장비")
+st.sidebar.header("5. 스마트플러그 장비")
 
 plug_device = st.sidebar.selectbox(
     "스마트플러그 연결 장비",
@@ -418,9 +761,9 @@ if plug_device != "없음":
 plug_kwh_month = plug_kwh_day * business_days
 
 
-# -----------------------------
+# =============================
 # 계산
-# -----------------------------
+# =============================
 
 benchmark = BENCHMARKS[store_type]
 
@@ -436,11 +779,22 @@ hour_grade, hour_class = grade_from_ratio(ratio_hour)
 
 energy_score = score_from_ratio((ratio_area + ratio_hour) / 2)
 
-# 장비 기반 간단 최대부하 추정
-if store_type == "일반 카페":
-    estimated_peak_kw = max(6, area_pyeong * 0.55)
-else:
-    estimated_peak_kw = max(12, area_pyeong * 1.1)
+base_peak = area_pyeong * 0.55 if store_type == "일반 카페" else area_pyeong * 1.1
+device_extra = 0
+
+if has_showcase:
+    device_extra += 0.8
+
+if has_ice_machine:
+    device_extra += 0.8
+
+if has_oven:
+    device_extra += 4.0
+
+device_extra += refrigerator_count * 0.3
+device_extra += ac_count * 1.2
+
+estimated_peak_kw = max(6, base_peak + device_extra)
 
 contract_status, contract_message, contract_class = contract_power_diagnosis(
     store_type,
@@ -458,7 +812,12 @@ recommendations = calculate_recommendations(
     outdoor_temp,
     plug_kwh_month,
     after_hours_ratio,
-    contract_status
+    contract_status,
+    has_showcase,
+    has_ice_machine,
+    has_oven,
+    refrigerator_count,
+    ac_count
 )
 
 estimated_saving_low = monthly_bill * 0.05
@@ -469,33 +828,37 @@ if energy_score < 55:
     estimated_saving_high = monthly_bill * 0.22
 
 
-# -----------------------------
+# =============================
 # 메인 결과
-# -----------------------------
+# =============================
 
-col1, col2, col3, col4, col5 = st.columns(5)
+result_col1, result_col2, result_col3, result_col4 = st.columns([1, 1, 1, 1.35])
 
-with col1:
-    st.metric("종합 에너지 점수", f"{energy_score}점")
+with result_col1:
+    metric_card("종합 에너지 점수", f"{energy_score}점")
 
-with col2:
-    st.metric("월 전력사용량", kwh(monthly_kwh))
+with result_col2:
+    metric_card("월 전력사용량", kwh(monthly_kwh))
 
-with col3:
-    st.metric("월 전기요금", won(monthly_bill))
+with result_col3:
+    metric_card("월 전기요금", won(monthly_bill))
 
-with col4:
-    st.metric("예상 절감 여지", f"{won(estimated_saving_low)} ~ {won(estimated_saving_high)}")
+with result_col4:
+    metric_card(
+        "예상 절감 금액",
+        f"{won(estimated_saving_low)}<br>~ {won(estimated_saving_high)}",
+        "현재 입력값 기준 월 예상 범위",
+        small=True
+    )
 
-with col5:
-    st.metric("현재 외기온도", f"{outdoor_temp:.1f}°C")
+st.caption(f"날씨 기준 위치: {selected_location_label}")
 
 st.divider()
 
 
-# -----------------------------
+# =============================
 # 진단 요약
-# -----------------------------
+# =============================
 
 left, right = st.columns([1.2, 1])
 
@@ -563,17 +926,45 @@ with right:
     </div>
     """, unsafe_allow_html=True)
 
+st.divider()
+
+
+# =============================
+# 카페 장비 요약
+# =============================
+
+st.subheader("카페 장비 구성 요약")
+
+device_col1, device_col2, device_col3, device_col4, device_col5 = st.columns(5)
+
+with device_col1:
+    st.metric("쇼케이스", "있음" if has_showcase else "없음")
+
+with device_col2:
+    st.metric("제빙기", "있음" if has_ice_machine else "없음")
+
+with device_col3:
+    st.metric("오븐", "있음" if has_oven else "없음")
+
+with device_col4:
+    st.metric("냉장 냉동 장비", f"{refrigerator_count}개")
+
+with device_col5:
+    st.metric("에어컨", f"{ac_count}대")
+
+if has_oven and store_type == "일반 카페":
+    st.warning("오븐이 있는 경우 일반 카페보다 베이커리 카페에 가까운 전력 패턴이 나타날 수 있습니다.")
 
 st.divider()
 
 
-# -----------------------------
+# =============================
 # 날씨 분석
-# -----------------------------
+# =============================
 
 st.subheader("날씨와 냉방 부담")
 
-weather_col1, weather_col2, weather_col3 = st.columns(3)
+weather_col1, weather_col2, weather_col3, weather_col4 = st.columns(4)
 
 with weather_col1:
     st.metric("외기온도", f"{outdoor_temp:.1f}°C")
@@ -582,6 +973,9 @@ with weather_col2:
     st.metric("외기습도", f"{outdoor_humidity:.0f}%")
 
 with weather_col3:
+    st.metric("풍속", f"{wind_speed:.1f} m/s")
+
+with weather_col4:
     st.metric("실내외 온도차", f"{indoor_temp - outdoor_temp:+.1f}°C")
 
 if outdoor_temp >= 30 and indoor_temp <= 24:
@@ -591,13 +985,12 @@ elif outdoor_temp >= 30 and indoor_temp > 27:
 else:
     st.success("현재 날씨 조건에서는 냉방 부담이 과도하게 높게 나타나지는 않습니다.")
 
-
 st.divider()
 
 
-# -----------------------------
+# =============================
 # 스마트플러그 분석
-# -----------------------------
+# =============================
 
 st.subheader("스마트플러그 장비 분석")
 
@@ -633,13 +1026,12 @@ else:
             "현재는 큰 낭비 신호가 강하게 보이지 않습니다."
         )
 
-
 st.divider()
 
 
-# -----------------------------
+# =============================
 # 추천 조치
-# -----------------------------
+# =============================
 
 st.subheader("CafeWatt 추천 조치")
 
@@ -649,9 +1041,9 @@ for idx, rec in enumerate(recommendations, start=1):
 st.divider()
 
 
-# -----------------------------
+# =============================
 # 요약
-# -----------------------------
+# =============================
 
 st.subheader("CafeWatt 요약")
 
@@ -674,9 +1066,9 @@ else:
 st.success(summary)
 
 
-# -----------------------------
-# 하단 안내
-# -----------------------------
+# =============================
+# 진단 기준 안내
+# =============================
 
 with st.expander("CafeWatt 진단 기준 안내"):
     st.write("""
@@ -690,6 +1082,8 @@ with st.expander("CafeWatt 진단 기준 안내"):
 
     스마트플러그 분석은 연결된 특정 장비의 사용량만 보여줍니다.
     매장 전체 전력사용량은 월 전력사용량 입력값을 기준으로 판단합니다.
+
+    주소 검색은 카카오 Local API를 사용하고, 날씨 데이터는 Open Meteo API를 사용합니다.
     """)
 
-st.caption("CafeWatt MVP 0.1 | 카페 전기요금 진단 AI")
+st.caption("CafeWatt MVP 0.4 | 카페 전기요금 진단 AI")
