@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CafeWatt | 카페 전기요금 진단 AI</title>
+  <meta name="description" content="CafeWatt는 카페와 베이커리 카페의 전기요금, 전력사용량, 매장 면적, 운영시간, 장비 구성, 날씨 데이터를 기반으로 에너지 사용 수준을 진단하는 AI 기반 서비스입니다." />
+
+  <style>
+    :root {
+      --bg: #fffaf2;
+      --card: #ffffff;
+      --text: #2b2118;
+      --muted: #6f6258;
+      --brand: #7a4a24;
+      --brand-dark: #4f2f16;
+      --soft: #f4e5d1;
+      --line: #ead8c0;
+      --green: #1f7a4d;
+      --orange: #b56a00;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: Arial, "Noto Sans KR", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+    }
+
+    a {
+      text-decoration: none;
+      color: inherit;
+    }
+
+    .container {
+      width: min(1120px, calc(100% - 40px));
+      margin: 0 auto;
+    }
+
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: rgba(255, 250, 242, 0.92);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .nav {
+      height: 72px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 900;
+      font-size: 22px;
+      color: var(--brand-dark);
+    }
+
+    .logo-mark {
+      width: 38px;
+      height: 38px;
+      border-radius: 12px;
+      background: var(--brand);
+      color: white;
+      display: grid;
+      place-items: center;
+      font-size: 20px;
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 22px;
+      font-size: 14px;
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    .nav-links a:hover {
+      color: var(--brand-dark);
+    }
+
+    .hero {
+      padding: 86px 0 64px;
+    }
+
+    .hero-grid {
+      display: grid;
+      grid-template-columns: 1.08fr 0.92fr;
+      gap: 42px;
+      align-items: center;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 13px;
+      background: var(--soft);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--brand-dark);
+      font-size: 13px;
+      font-weight: 800;
+      margin-bottom: 18px;
+    }
+
+    h1 {
+      font-size: clamp(40px, 5vw, 66px);
+      line-height: 1.08;
+      margin: 0 0 20px;
+      letter-spacing: -1.8px;
+    }
+
+    .hero p {
+      font-size: 18px;
+      color: var(--muted);
+      margin: 0 0 28px;
+      max-width: 640px;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 26px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 48px;
+      padding: 0 20px;
+      border-radius: 14px;
+      font-weight: 900;
+      font-size: 15px;
+      border: 1px solid transparent;
+      transition: 0.2s ease;
+    }
+
+    .btn.primary {
+      background: var(--brand);
+      color: white;
+      box-shadow: 0 10px 28px rgba(122, 74, 36, 0.22);
+    }
+
+    .btn.primary:hover {
+      background: var(--brand-dark);
+      transform: translateY(-1px);
+    }
+
+    .btn.secondary {
+      background: white;
+      color: var(--brand-dark);
+      border-color: var(--line);
+    }
+
+    .btn.secondary:hover {
+      border-color: var(--brand);
+      transform: translateY(-1px);
+    }
+
+    .hero-card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 28px;
+      padding: 24px;
+      box-shadow: 0 24px 60px rgba(79, 47, 22, 0.10);
+    }
+
+    .dashboard {
+      border-radius: 22px;
+      background: linear-gradient(135deg, #fff7e8, #ffffff);
+      border: 1px solid var(--line);
+      padding: 20px;
+    }
+
+    .dashboard-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 18px;
+    }
+
+    .score {
+      width: 86px;
+      height: 86px;
+      border-radius: 24px;
+      background: var(--brand);
+      color: white;
+      display: grid;
+      place-items: center;
+      font-weight: 900;
+      font-size: 30px;
+    }
+
+    .mini-title {
+      font-size: 13px;
+      color: var(--muted);
+      font-weight: 800;
+      margin-bottom: 4px;
+    }
+
+    .mini-value {
+      font-size: 24px;
+      font-weight: 900;
+      color: var(--text);
+    }
+
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .mini-card {
+      padding: 14px;
+      border-radius: 16px;
+      background: white;
+      border: 1px solid #f0e5d6;
+    }
+
+    .status {
+      margin-top: 14px;
+      padding: 14px;
+      border-radius: 16px;
+      background: #fff1d9;
+      color: var(--orange);
+      font-weight: 900;
+      font-size: 14px;
+    }
+
+    section {
+      padding: 72px 0;
+    }
+
+    .section-head {
+      text-align: center;
+      margin-bottom: 36px;
+    }
+
+    .section-head h2 {
+      font-size: clamp(30px, 4vw, 44px);
+      line-height: 1.15;
+      margin: 0 0 12px;
+      letter-spacing: -1px;
+    }
+
+    .section-head p {
+      color: var(--muted);
+      font-size: 17px;
+      margin: 0 auto;
+      max-width: 720px;
+    }
+
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 18px;
+    }
+
+    .feature-card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      padding: 24px;
+      min-height: 220px;
+      box-shadow: 0 14px 34px rgba(79, 47, 22, 0.06);
+    }
+
+    .icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 14px;
+      background: var(--soft);
+      display: grid;
+      place-items: center;
+      font-size: 22px;
+      margin-bottom: 16px;
+    }
+
+    .feature-card h3 {
+      font-size: 20px;
+      margin: 0 0 10px;
+    }
+
+    .feature-card p {
+      color: var(--muted);
+      margin: 0;
+      font-size: 15px;
+    }
+
+    .process {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+    }
+
+    .step {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      padding: 22px;
+    }
+
+    .step-num {
+      width: 34px;
+      height: 34px;
+      border-radius: 11px;
+      background: var(--brand);
+      color: white;
+      display: grid;
+      place-items: center;
+      font-weight: 900;
+      margin-bottom: 14px;
+    }
+
+    .step h3 {
+      margin: 0 0 8px;
+      font-size: 18px;
+    }
+
+    .step p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .cta {
+      background: var(--brand-dark);
+      color: white;
+      border-radius: 34px;
+      padding: 48px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 24px;
+      align-items: center;
+    }
+
+    .cta h2 {
+      font-size: clamp(28px, 4vw, 42px);
+      line-height: 1.15;
+      margin: 0 0 10px;
+    }
+
+    .cta p {
+      margin: 0;
+      color: #ead8c0;
+      font-size: 16px;
+    }
+
+    .cta .btn {
+      background: white;
+      color: var(--brand-dark);
+    }
+
+    footer {
+      padding: 34px 0;
+      color: var(--muted);
+      border-top: 1px solid var(--line);
+      font-size: 14px;
+    }
+
+    .footer-inner {
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      flex-wrap: wrap;
+    }
+
+    @media (max-width: 900px) {
+      .hero-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .feature-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .process {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .cta {
+        grid-template-columns: 1fr;
+      }
+
+      .nav-links {
+        display: none;
+      }
+    }
+
+    @media (max-width: 560px) {
+      .process {
+        grid-template-columns: 1fr;
+      }
+
+      .dashboard-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .hero {
+        padding-top: 56px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <header>
+    <div class="container nav">
+      <a class="logo" href="#">
+        <span class="logo-mark">☕</span>
+        <span>CafeWatt</span>
+      </a>
+
+      <nav class="nav-links">
+        <a href="#features">기능</a>
+        <a href="#process">사용 방법</a>
+        <a href="#target">대상</a>
+        <a href="#start">시작하기</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="container hero-grid">
+        <div>
+          <div class="eyebrow">카페 전기요금 진단 AI</div>
+          <h1>카페의 전기 사용을 더 쉽게 진단하세요.</h1>
+          <p>
+            CafeWatt는 카페와 베이커리 카페의 전기요금, 월 전력사용량, 매장 면적, 운영시간,
+            장비 구성, 실내환경, 날씨 데이터를 연결해 에너지 사용 수준과 절감 가능성을 분석합니다.
+          </p>
+
+          <div class="actions">
+            <a class="btn primary" href="https://cafewatt.streamlit.app/" target="_blank">
+              CafeWatt 앱 실행하기
+            </a>
+            <a class="btn secondary" href="#features">
+              기능 살펴보기
+            </a>
+          </div>
+        </div>
+
+        <div class="hero-card">
+          <div class="dashboard">
+            <div class="dashboard-top">
+              <div>
+                <div class="mini-title">종합 에너지 점수</div>
+                <div class="mini-value">68점</div>
+              </div>
+              <div class="score">68</div>
+            </div>
+
+            <div class="dashboard-grid">
+              <div class="mini-card">
+                <div class="mini-title">월 전력사용량</div>
+                <div class="mini-value">1,800 kWh</div>
+              </div>
+              <div class="mini-card">
+                <div class="mini-title">월 전기요금</div>
+                <div class="mini-value">420,000원</div>
+              </div>
+              <div class="mini-card">
+                <div class="mini-title">예상 절감 금액</div>
+                <div class="mini-value">21,000원</div>
+              </div>
+              <div class="mini-card">
+                <div class="mini-title">현재 외기온도</div>
+                <div class="mini-value">29.4°C</div>
+              </div>
+            </div>
+
+            <div class="status">
+              냉장 장비와 영업시간 외 사용량을 우선 점검하세요.
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="features">
+      <div class="container">
+        <div class="section-head">
+          <h2>카페 운영에 맞춘 에너지 진단</h2>
+          <p>
+            일반적인 건물 에너지 분석이 아니라, 카페와 베이커리 카페의 실제 운영 특성을 기준으로 진단합니다.
+          </p>
+        </div>
+
+        <div class="feature-grid">
+          <div class="feature-card">
+            <div class="icon">⚡</div>
+            <h3>전기요금 진단</h3>
+            <p>
+              월 전기요금과 전력사용량을 바탕으로 면적당 사용량, 운영시간당 사용량, 평균 단가를 분석합니다.
+            </p>
+          </div>
+
+          <div class="feature-card">
+            <div class="icon">📍</div>
+            <h3>주소 기반 날씨 연결</h3>
+            <p>
+              매장 주소를 입력하면 위치를 찾고, 해당 위치의 현재 외기온도, 습도, 풍속을 진단에 반영합니다.
+            </p>
+          </div>
+
+          <div class="feature-card">
+            <div class="icon">🧊</div>
+            <h3>장비 구성 분석</h3>
+            <p>
+              쇼케이스, 제빙기, 오븐, 냉장고, 에어컨 등 카페 장비 구성을 바탕으로 피크부하를 추정합니다.
+            </p>
+          </div>
+
+          <div class="feature-card">
+            <div class="icon">🌡️</div>
+            <h3>실내환경 진단</h3>
+            <p>
+              평균 실내온도와 습도를 기준으로 과냉방, 냉방 부족, 습도 관리 필요 여부를 확인합니다.
+            </p>
+          </div>
+
+          <div class="feature-card">
+            <div class="icon">📊</div>
+            <h3>업종 기준 비교</h3>
+            <p>
+              일반 카페와 베이커리 카페의 기준값을 나누어 같은 업종 대비 전력 사용 수준을 비교합니다.
+            </p>
+          </div>
+
+          <div class="feature-card">
+            <div class="icon">📝</div>
+            <h3>진단 리포트</h3>
+            <p>
+              핵심 결과와 추천 조치를 텍스트 리포트로 정리해 다운로드할 수 있습니다.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="process">
+      <div class="container">
+        <div class="section-head">
+          <h2>사용 방법은 간단합니다</h2>
+          <p>
+            고지서 정보와 매장 기본 정보만 입력해도 첫 진단을 시작할 수 있습니다.
+          </p>
+        </div>
+
+        <div class="process">
+          <div class="step">
+            <div class="step-num">1</div>
+            <h3>매장 정보 입력</h3>
+            <p>업종, 면적, 운영시간, 월 영업일수를 입력합니다.</p>
+          </div>
+
+          <div class="step">
+            <div class="step-num">2</div>
+            <h3>전기요금 입력</h3>
+            <p>월 전력사용량, 월 전기요금, 계약전력을 입력합니다.</p>
+          </div>
+
+          <div class="step">
+            <div class="step-num">3</div>
+            <h3>주소와 날씨 연결</h3>
+            <p>매장 주소를 기반으로 현재 날씨 데이터를 불러옵니다.</p>
+          </div>
+
+          <div class="step">
+            <div class="step-num">4</div>
+            <h3>진단 결과 확인</h3>
+            <p>점수, 절감 금액, 추천 조치, 리포트를 확인합니다.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="target">
+      <div class="container">
+        <div class="section-head">
+          <h2>누구에게 필요한가요?</h2>
+          <p>
+            전기요금이 부담되지만 어디서 낭비가 발생하는지 알기 어려운 카페 운영자를 위한 도구입니다.
+          </p>
+        </div>
+
+        <div class="feature-grid">
+          <div class="feature-card">
+            <div class="icon">☕</div>
+            <h3>개인 카페</h3>
+            <p>전기요금 고지서를 바탕으로 매장 에너지 사용 수준을 빠르게 파악할 수 있습니다.</p>
+          </div>
+
+          <div class="feature-card">
+            <div class="icon">🥐</div>
+            <h3>베이커리 카페</h3>
+            <p>오븐, 냉동고, 쇼케이스, 냉방이 겹치는 매장의 피크 부담을 확인할 수 있습니다.</p>
+          </div>
+
+          <div class="feature-card">
+            <div class="icon">🏢</div>
+            <h3>소상공인 에너지 관리</h3>
+            <p>전문 에너지 진단 전, 간단한 1차 점검 도구로 활용할 수 있습니다.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="start">
+      <div class="container">
+        <div class="cta">
+          <div>
+            <h2>지금 CafeWatt 진단을 시작하세요.</h2>
+            <p>
+              실제 앱은 Streamlit Cloud에서 실행됩니다. 버튼을 누르면 CafeWatt 진단 앱으로 이동합니다.
+            </p>
+          </div>
+
+          <a class="btn" href="https://cafewatt.streamlit.app/" target="_blank">
+            앱 실행하기
+          </a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="container footer-inner">
+      <div>© 2026 CafeWatt. Built by Joungho So.</div>
+      <div>카페 전기요금 진단 AI MVP</div>
+    </div>
+  </footer>
+</body>
+</html>
