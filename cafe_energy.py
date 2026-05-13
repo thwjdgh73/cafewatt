@@ -246,7 +246,7 @@ SAMPLE_PROFILES = {
         "area_input_unit": "평",
         "area_value": 22.0,
         "schedule_mode": "간단 입력",
-        "open_time": "09:00",
+        "open_time": "08:00",
         "close_time": "22:00",
         "business_days": 28,
         "monthly_kwh": 1800,
@@ -326,11 +326,13 @@ def apply_input_profile(profile):
     st.session_state["area_input_unit"] = profile.get("area_input_unit", "평")
     st.session_state["area_value"] = float(profile.get("area_value", 20.0))
     st.session_state["schedule_mode"] = profile.get("schedule_mode", "간단 입력")
-    st.session_state["open_time_main"] = parse_time_string(profile.get("open_time", "09:00"), time(9, 0))
+    st.session_state["open_time_main"] = parse_time_string(profile.get("open_time", "08:00"), time(8, 0))
     st.session_state["close_time_main"] = parse_time_string(profile.get("close_time", "22:00"), time(22, 0))
     st.session_state["business_days"] = int(profile.get("business_days", 28))
     st.session_state["monthly_kwh"] = int(profile.get("monthly_kwh", 1800))
     st.session_state["monthly_bill"] = int(profile.get("monthly_bill", 420000))
+    st.session_state["monthly_kwh_text"] = format_number_text(profile.get("monthly_kwh", 1800))
+    st.session_state["monthly_bill_text"] = format_number_text(profile.get("monthly_bill", 420000))
     st.session_state["contract_power"] = float(profile.get("contract_power", 15.0))
     st.session_state["indoor_temp"] = float(profile.get("indoor_temp", 25.5))
     st.session_state["indoor_humidity"] = int(profile.get("indoor_humidity", 55))
@@ -421,6 +423,24 @@ def pct(value):
 
 def safe_divide(a, b):
     return 0 if b == 0 else a / b
+
+
+def parse_number_text(value, fallback=0):
+    """쉼표가 포함된 숫자 입력값을 안전하게 정수로 변환합니다."""
+    try:
+        cleaned = str(value).replace(",", "").replace("원", "").replace("kWh", "").strip()
+        if cleaned == "":
+            return fallback
+        return int(float(cleaned))
+    except Exception:
+        return fallback
+
+
+def format_number_text(value):
+    try:
+        return f"{int(float(value)):,}"
+    except Exception:
+        return str(value)
 
 
 def metric_card(title, value, caption=None, small=False):
@@ -1130,7 +1150,7 @@ st.markdown("""
 # Sidebar Inputs
 # =========================================================
 
-st.sidebar.markdown("### 샘플 데이터로 빠르게 테스트할 수 있습니다.")
+st.sidebar.markdown("### 샘플 데이터로 빠르게 테스트하거나, 현재 입력값을 파일로 저장하고 다시 불러올 수 있습니다.")
 
 sample_name = st.sidebar.selectbox(
     "샘플 카페 데이터",
@@ -1205,9 +1225,29 @@ st.sidebar.caption(f"예상 월 운영시간: {monthly_hours:.0f}시간")
 st.sidebar.divider()
 
 st.sidebar.header("전기요금 정보")
-monthly_kwh = st.sidebar.number_input("월 전력사용량", min_value=100, max_value=20000, step=100, key="monthly_kwh")
-monthly_bill = st.sidebar.number_input("월 전기요금", min_value=10000, max_value=5000000, step=10000, key="monthly_bill")
-contract_power = st.sidebar.number_input("계약전력", min_value=0.0, max_value=100.0, step=1.0, key="contract_power", help="모르면 0으로 입력하세요.")
+
+if "monthly_kwh_text" not in st.session_state:
+    st.session_state["monthly_kwh_text"] = format_number_text(st.session_state.get("monthly_kwh", 1800))
+if "monthly_bill_text" not in st.session_state:
+    st.session_state["monthly_bill_text"] = format_number_text(st.session_state.get("monthly_bill", 420000))
+
+monthly_kwh_text = st.sidebar.text_input(
+    "월 전력사용량 (kWh)",
+    key="monthly_kwh_text",
+    help="전기요금 고지서의 월 사용량을 입력하세요. 예: 1,800"
+)
+monthly_kwh = parse_number_text(monthly_kwh_text, fallback=1800)
+st.sidebar.caption(f"입력값: {monthly_kwh:,} kWh")
+
+monthly_bill_text = st.sidebar.text_input(
+    "월 전기요금 (원)",
+    key="monthly_bill_text",
+    help="최근 월 전기요금을 원 단위로 입력하세요. 예: 420,000"
+)
+monthly_bill = parse_number_text(monthly_bill_text, fallback=420000)
+st.sidebar.caption(f"입력값: {monthly_bill:,}원")
+
+contract_power = st.sidebar.number_input("계약전력 (kW)", min_value=0.0, max_value=100.0, step=1.0, key="contract_power", help="모르면 0으로 입력하세요.")
 
 st.sidebar.divider()
 
@@ -1223,8 +1263,26 @@ for key, item in EQUIPMENT_CATALOG.items():
 st.sidebar.divider()
 
 st.sidebar.header("실내환경")
-indoor_temp = st.sidebar.slider("영업시간 평균 실내온도", min_value=18.0, max_value=32.0, step=0.5, key="indoor_temp")
-indoor_humidity = st.sidebar.slider("평균 실내습도", min_value=20, max_value=90, key="indoor_humidity")
+if "indoor_temp" not in st.session_state:
+    st.session_state["indoor_temp"] = 25.5
+if "indoor_humidity" not in st.session_state:
+    st.session_state["indoor_humidity"] = 55
+
+indoor_temp = st.sidebar.slider(
+    "영업시간 평균 실내온도 (°C)",
+    min_value=10.0,
+    max_value=38.0,
+    step=0.5,
+    key="indoor_temp",
+    help="센서가 없으면 평소 영업시간 평균값을 입력하세요."
+)
+indoor_humidity = st.sidebar.slider(
+    "평균 실내습도 (%)",
+    min_value=0,
+    max_value=100,
+    key="indoor_humidity",
+    help="센서가 없으면 평소 실내 평균 습도를 입력하세요."
+)
 
 st.sidebar.divider()
 
@@ -1443,7 +1501,7 @@ if bakery_like:
 # =========================================================
 
 st.markdown('<div class="section-title">CafeWatt 핵심 진단 결과</div>', unsafe_allow_html=True)
-score_col, reliability_col, kwh_col, bill_col, saving_col = st.columns([1, 1, 1, 1, 1.35])
+score_col, reliability_col, kwh_col, bill_col = st.columns(4)
 
 with score_col:
     metric_card("종합 에너지 점수", f"{energy_score}점", "100점에 가까울수록 효율적")
@@ -1453,10 +1511,18 @@ with kwh_col:
     metric_card("월 전력사용량", kwh(monthly_kwh), f"운영시간당 {kwh_per_hour:.1f} kWh")
 with bill_col:
     metric_card("월 전기요금", won(monthly_bill), f"평균 단가 {price_per_kwh:.0f}원/kWh")
-with saving_col:
-    metric_card("예상 절감 금액", f"{won(estimated_saving_low)}<br>~ {won(estimated_saving_high)}", "현재 입력값 기준 월 예상 범위", small=True)
 
-st.success(summary)
+saving_col, interpretation_col = st.columns([1.25, 2.75])
+with saving_col:
+    metric_card("월 예상 절감 금액", f"{won(estimated_saving_low)}<br>~ {won(estimated_saving_high)}", "현재 입력값 기준 월 예상 범위", small=True)
+with interpretation_col:
+    st.markdown(f"""
+    <div class="card-soft">
+        <div class="metric-title">핵심 해석</div>
+        <p style="margin-bottom: 0;">{summary}</p>
+    </div>
+    """, unsafe_allow_html=True)
+
 st.divider()
 
 
