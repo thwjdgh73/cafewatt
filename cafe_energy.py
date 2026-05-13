@@ -16,6 +16,9 @@ try:
     from reportlab.lib.units import mm
     from reportlab.pdfgen import canvas
     from reportlab.lib.utils import simpleSplit
+    from reportlab.lib import colors
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.cidfonts import UnicodeCIDFont
     REPORTLAB_AVAILABLE = True
 except Exception:
     REPORTLAB_AVAILABLE = False
@@ -205,6 +208,199 @@ DAYS = [
     ("sat", "토"),
     ("sun", "일"),
 ]
+
+
+# =========================================================
+# Sample Profiles and Input Persistence
+# =========================================================
+
+SAMPLE_PROFILES = {
+    "소형 테이크아웃 카페": {
+        "area_input_unit": "평",
+        "area_value": 10.0,
+        "schedule_mode": "간단 입력",
+        "open_time": "08:00",
+        "close_time": "20:00",
+        "business_days": 26,
+        "monthly_kwh": 950,
+        "monthly_bill": 230000,
+        "contract_power": 10.0,
+        "indoor_temp": 25.5,
+        "indoor_humidity": 55,
+        "equipment_counts": {
+            "espresso_machine": 1,
+            "grinder": 1,
+            "showcase": 1,
+            "ice_machine": 0,
+            "refrigerator": 1,
+            "freezer": 0,
+            "oven": 0,
+            "proofer": 0,
+            "dishwasher": 0,
+            "ac": 1,
+            "ventilation": 1,
+        },
+        "smart_plug_entries": []
+    },
+    "일반 카페": {
+        "area_input_unit": "평",
+        "area_value": 22.0,
+        "schedule_mode": "간단 입력",
+        "open_time": "09:00",
+        "close_time": "22:00",
+        "business_days": 28,
+        "monthly_kwh": 1800,
+        "monthly_bill": 420000,
+        "contract_power": 15.0,
+        "indoor_temp": 25.5,
+        "indoor_humidity": 55,
+        "equipment_counts": {
+            "espresso_machine": 1,
+            "grinder": 2,
+            "showcase": 1,
+            "ice_machine": 1,
+            "refrigerator": 2,
+            "freezer": 1,
+            "oven": 0,
+            "proofer": 0,
+            "dishwasher": 1,
+            "ac": 2,
+            "ventilation": 1,
+        },
+        "smart_plug_entries": [
+            {"device": "쇼케이스 냉장고", "daily_kwh": 4.5, "after_hours_ratio": 30}
+        ]
+    },
+    "베이커리형 카페": {
+        "area_input_unit": "평",
+        "area_value": 35.0,
+        "schedule_mode": "간단 입력",
+        "open_time": "08:00",
+        "close_time": "23:00",
+        "business_days": 30,
+        "monthly_kwh": 4200,
+        "monthly_bill": 950000,
+        "contract_power": 30.0,
+        "indoor_temp": 26.0,
+        "indoor_humidity": 58,
+        "equipment_counts": {
+            "espresso_machine": 2,
+            "grinder": 2,
+            "showcase": 2,
+            "ice_machine": 1,
+            "refrigerator": 3,
+            "freezer": 2,
+            "oven": 2,
+            "proofer": 1,
+            "dishwasher": 1,
+            "ac": 3,
+            "ventilation": 2,
+        },
+        "smart_plug_entries": [
+            {"device": "쇼케이스 냉장고", "daily_kwh": 7.5, "after_hours_ratio": 55},
+            {"device": "제빙기", "daily_kwh": 5.0, "after_hours_ratio": 35}
+        ]
+    },
+}
+
+
+def parse_time_string(value, fallback):
+    if isinstance(value, time):
+        return value
+    if isinstance(value, str):
+        try:
+            hour, minute = value.split(":")[:2]
+            return time(int(hour), int(minute))
+        except Exception:
+            return fallback
+    return fallback
+
+
+def time_to_string(value):
+    if isinstance(value, time):
+        return value.strftime("%H:%M")
+    return str(value)
+
+
+def apply_input_profile(profile):
+    st.session_state["area_input_unit"] = profile.get("area_input_unit", "평")
+    st.session_state["area_value"] = float(profile.get("area_value", 20.0))
+    st.session_state["schedule_mode"] = profile.get("schedule_mode", "간단 입력")
+    st.session_state["open_time_main"] = parse_time_string(profile.get("open_time", "09:00"), time(9, 0))
+    st.session_state["close_time_main"] = parse_time_string(profile.get("close_time", "22:00"), time(22, 0))
+    st.session_state["business_days"] = int(profile.get("business_days", 28))
+    st.session_state["monthly_kwh"] = int(profile.get("monthly_kwh", 1800))
+    st.session_state["monthly_bill"] = int(profile.get("monthly_bill", 420000))
+    st.session_state["contract_power"] = float(profile.get("contract_power", 15.0))
+    st.session_state["indoor_temp"] = float(profile.get("indoor_temp", 25.5))
+    st.session_state["indoor_humidity"] = int(profile.get("indoor_humidity", 55))
+
+    equipment_counts = profile.get("equipment_counts", {})
+    for key, item in EQUIPMENT_CATALOG.items():
+        count = int(equipment_counts.get(key, 0))
+        st.session_state[f"has_{key}"] = count > 0
+        if count > 0:
+            st.session_state[f"count_{key}"] = count
+
+    smart_entries = profile.get("smart_plug_entries", [])
+    st.session_state["smart_plug_count"] = len(smart_entries)
+    for i, entry in enumerate(smart_entries):
+        st.session_state[f"plug_device_{i}"] = entry.get("device", "쇼케이스 냉장고")
+        st.session_state[f"plug_kwh_day_{i}"] = float(entry.get("daily_kwh", 4.5))
+        st.session_state[f"after_hours_ratio_{i}"] = int(entry.get("after_hours_ratio", 25))
+
+
+def initialize_default_inputs():
+    if st.session_state.get("inputs_initialized"):
+        return
+    apply_input_profile(SAMPLE_PROFILES["일반 카페"])
+    st.session_state["inputs_initialized"] = True
+
+
+def build_saved_input_state(
+    area_input_unit,
+    area_value,
+    schedule_mode,
+    open_time,
+    close_time,
+    business_days,
+    monthly_kwh,
+    monthly_bill,
+    contract_power,
+    indoor_temp,
+    indoor_humidity,
+    equipment_counts,
+    smart_plug_entries
+):
+    compact_plugs = []
+    for entry in smart_plug_entries:
+        compact_plugs.append({
+            "device": entry.get("device", "기타 장비"),
+            "daily_kwh": float(entry.get("daily_kwh", 0)),
+            "after_hours_ratio": int(entry.get("after_hours_ratio", 0)),
+        })
+
+    return {
+        "app": "CafeWatt",
+        "version": "0.9",
+        "saved_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "area_input_unit": area_input_unit,
+        "area_value": float(area_value),
+        "schedule_mode": schedule_mode,
+        "open_time": time_to_string(open_time),
+        "close_time": time_to_string(close_time),
+        "business_days": int(business_days),
+        "monthly_kwh": int(monthly_kwh),
+        "monthly_bill": int(monthly_bill),
+        "contract_power": float(contract_power),
+        "indoor_temp": float(indoor_temp),
+        "indoor_humidity": int(indoor_humidity),
+        "equipment_counts": equipment_counts,
+        "smart_plug_entries": compact_plugs,
+        "selected_location_label": st.session_state.get("selected_location_label", ""),
+        "latitude": st.session_state.get("latitude", None),
+        "longitude": st.session_state.get("longitude", None),
+    }
 
 
 # =========================================================
@@ -653,7 +849,7 @@ def calculate_recommendations(
         estimated_waste = plug_kwh_month * after_hours_ratio / 100 * price_per_kwh
         recommendations.append({
             "title": "영업시간 외 장비 사용이 큽니다",
-            "body": f"스마트플러그 장비의 영업시간 외 사용 비중이 높습니다. 폐점 후 자동 종료 또는 운전 스케줄 조정으로 월 약 {won(estimated_waste)} 수준의 낭비를 줄일 수 있습니다.",
+            "body": f"스마트플러그로 확인된 장비들의 영업시간 외 사용 비중이 높습니다. 폐점 후 자동 종료 또는 운전 스케줄 조정으로 월 약 {won(estimated_waste)} 수준의 낭비를 줄일 수 있습니다.",
             "impact": "high"
         })
 
@@ -740,56 +936,70 @@ def build_report_text(
     monthly_hours,
     equipment_counts,
     recommendations,
-    summary
+    summary,
+    smart_plug_entries=None
 ):
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
-    equipment_text = ""
+
+    equipment_lines = []
     for key, count in equipment_counts.items():
         if count > 0:
-            equipment_text += f"- {EQUIPMENT_CATALOG[key]['label']}: {count}\n"
+            equipment_lines.append(f"- {EQUIPMENT_CATALOG[key]['label']}: {count}대")
+    equipment_text = "\n".join(equipment_lines) if equipment_lines else "- 선택된 장비 없음"
 
-    rec_text = ""
+    smart_plug_lines = []
+    if smart_plug_entries:
+        for item in smart_plug_entries:
+            smart_plug_lines.append(
+                f"- {item['device']}: 월 {item['monthly_kwh']:.1f} kWh, 영업시간 외 사용 비중 {item['after_hours_ratio']:.0f}%"
+            )
+    smart_plug_text = "\n".join(smart_plug_lines) if smart_plug_lines else "- 입력된 스마트플러그 데이터 없음"
+
+    rec_lines = []
     for idx, rec in enumerate(recommendations, start=1):
-        rec_text += f"{idx}. {rec['title']}\n   {rec['body']}\n\n"
+        rec_lines.append(f"{idx}. {rec['title']}\n   {rec['body']}")
+    rec_text = "\n\n".join(rec_lines)
 
     return f"""
-CafeWatt Energy Diagnosis Report
-Generated at: {now}
+CafeWatt 진단 리포트
+생성 시각: {now}
 
-1. Store Information
-Business type: Cafe
-Area: {area_pyeong:.1f} pyeong / {area_m2:.1f} m2
-Monthly operating hours: {monthly_hours:.1f} hours
-Location: {selected_location_label}
+1. 매장 정보
+업종: 카페
+매장 면적: {area_pyeong:.1f}평 / {area_m2:.1f}㎡
+월 운영시간: {monthly_hours:.1f}시간
+기준 위치: {selected_location_label}
 
-2. Electricity Information
-Monthly electricity use: {monthly_kwh:,.0f} kWh
-Monthly electricity bill: {monthly_bill:,.0f} KRW
-Contract power: {contract_power:.1f} kW
+2. 전기요금 정보
+월 전력사용량: {monthly_kwh:,.0f} kWh
+월 전기요금: {monthly_bill:,.0f}원
+계약전력: {contract_power:.1f} kW
 
-3. Key Diagnosis
-Energy score: {energy_score} / 100
-Diagnosis reliability: {reliability_label} ({reliability_score} / 100)
-Electricity use per operating hour: {kwh_per_hour:.1f} kWh/hour
+3. 핵심 진단
+종합 에너지 점수: {energy_score} / 100
+진단 신뢰도: {reliability_label} ({reliability_score} / 100)
+운영시간당 전력사용량: {kwh_per_hour:.1f} kWh/hour
 
-4. Weather
-Outdoor temperature: {outdoor_temp:.1f} C
-Outdoor humidity: {outdoor_humidity:.0f} %
-Wind speed: {wind_speed:.1f} m/s
+4. 날씨와 실내환경
+현재 외기온도: {outdoor_temp:.1f}°C
+현재 외기습도: {outdoor_humidity:.0f}%
+풍속: {wind_speed:.1f} m/s
 
-5. Equipment
-{equipment_text if equipment_text else '- No equipment selected'}
+5. 장비 구성
+{equipment_text}
 
-6. Recommendations
+6. 스마트플러그 데이터
+{smart_plug_text}
+
+7. 추천 조치
 {rec_text}
 
-7. Summary
+8. 종합 요약
 {summary}
 
-Note:
-CafeWatt is an MVP diagnostic tool. Results are based on user inputs, weather API data, benchmark assumptions, and simplified equipment load assumptions.
+안내
+CafeWatt는 카페의 에너지 사용 현황을 빠르게 파악하기 위한 기초 에너지 진단 도구입니다. 결과는 사용자가 입력한 전기요금, 운영시간, 장비 구성, 실내환경 정보와 위치 기반 날씨 데이터를 함께 반영해 계산됩니다.
 """
-
 
 def build_pdf_report(report_text):
     if not REPORTLAB_AVAILABLE:
@@ -798,37 +1008,96 @@ def build_pdf_report(report_text):
     buffer = BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
     width, height = A4
-    margin_x = 18 * mm
-    y = height - 20 * mm
-
-    c.setTitle("CafeWatt Report")
-    c.setFont("Helvetica-Bold", 16)
-    c.drawString(margin_x, y, "CafeWatt Energy Diagnosis Report")
-    y -= 12 * mm
-
-    c.setFont("Helvetica", 9)
+    margin_x = 17 * mm
+    y = height - 18 * mm
     max_width = width - 2 * margin_x
 
+    brand = colors.HexColor("#7A4A24")
+    soft = colors.HexColor("#FFF3DF")
+    line = colors.HexColor("#E6D6C0")
+    text_color = colors.HexColor("#2B2118")
+    muted = colors.HexColor("#6B5E52")
+
+    try:
+        pdfmetrics.registerFont(UnicodeCIDFont("HYGothic-Medium"))
+        font_regular = "HYGothic-Medium"
+        font_bold = "HYGothic-Medium"
+    except Exception:
+        font_regular = "Helvetica"
+        font_bold = "Helvetica-Bold"
+
+    def draw_header():
+        nonlocal y
+        c.setFillColor(brand)
+        c.roundRect(margin_x, y - 20 * mm, max_width, 20 * mm, 4 * mm, stroke=0, fill=1)
+        c.setFillColor(colors.white)
+        c.setFont(font_bold, 17)
+        c.drawString(margin_x + 7 * mm, y - 8 * mm, "CafeWatt 진단 리포트")
+        c.setFont(font_regular, 9)
+        c.drawString(margin_x + 7 * mm, y - 14 * mm, "카페 전기요금, 장비 부하, 날씨, 스마트플러그 사용량 진단")
+        y -= 28 * mm
+
+    def new_page_if_needed(required=12 * mm):
+        nonlocal y
+        if y < required + 18 * mm:
+            c.showPage()
+            y = height - 18 * mm
+            draw_header()
+
+    def draw_section(title):
+        nonlocal y
+        new_page_if_needed(16 * mm)
+        c.setFillColor(soft)
+        c.roundRect(margin_x, y - 9 * mm, max_width, 9 * mm, 2 * mm, stroke=0, fill=1)
+        c.setFillColor(brand)
+        c.setFont(font_bold, 11)
+        c.drawString(margin_x + 4 * mm, y - 6 * mm, title)
+        y -= 13 * mm
+
+    def draw_text(paragraph, size=9, leading=5 * mm, indent=0, color=text_color):
+        nonlocal y
+        c.setFillColor(color)
+        c.setFont(font_regular, size)
+        lines = simpleSplit(paragraph, font_regular, size, max_width - indent)
+        for line in lines:
+            new_page_if_needed(leading)
+            c.drawString(margin_x + indent, y, line)
+            y -= leading
+
+    c.setTitle("CafeWatt 진단 리포트")
+    draw_header()
+
     for paragraph in report_text.split("\n"):
-        if not paragraph.strip():
-            y -= 4 * mm
+        text_line = paragraph.strip()
+        if not text_line:
+            y -= 3 * mm
             continue
 
-        if paragraph[:2].isdigit() and "." in paragraph[:4]:
-            c.setFont("Helvetica-Bold", 11)
-        elif paragraph.startswith("CafeWatt"):
-            c.setFont("Helvetica-Bold", 12)
-        else:
-            c.setFont("Helvetica", 9)
+        if text_line[0:2].isdigit() and "." in text_line[:4]:
+            draw_section(text_line)
+            continue
 
-        lines = simpleSplit(paragraph, c._fontname, c._fontsize, max_width)
-        for line in lines:
-            if y < 18 * mm:
-                c.showPage()
-                y = height - 20 * mm
-                c.setFont("Helvetica", 9)
-            c.drawString(margin_x, y, line)
-            y -= 5 * mm
+        if text_line.startswith("생성 시각"):
+            draw_text(text_line, size=8, leading=5 * mm, color=muted)
+            y -= 2 * mm
+            continue
+
+        if text_line.startswith("안내"):
+            draw_section("안내")
+            continue
+
+        if text_line.startswith("-"):
+            draw_text(text_line, size=9, indent=4 * mm)
+        elif text_line.startswith("CafeWatt 진단 리포트"):
+            continue
+        else:
+            draw_text(text_line, size=9)
+
+    c.setStrokeColor(line)
+    c.line(margin_x, 15 * mm, width - margin_x, 15 * mm)
+    c.setFillColor(muted)
+    c.setFont(font_regular, 8)
+    c.drawString(margin_x, 10 * mm, "CafeWatt | 카페 전기요금 진단 도구")
 
     c.save()
     buffer.seek(0)
@@ -861,15 +1130,31 @@ st.markdown("""
 # Sidebar Inputs
 # =========================================================
 
-st.sidebar.header("1. 매장 기본 정보")
+st.sidebar.markdown("### 샘플 데이터로 빠르게 테스트할 수 있습니다.")
+
+sample_name = st.sidebar.selectbox(
+    "샘플 카페 데이터",
+    list(SAMPLE_PROFILES.keys()),
+    index=1,
+    key="sample_profile_select"
+)
+
+if st.sidebar.button("샘플 데이터 적용", use_container_width=True):
+    apply_input_profile(SAMPLE_PROFILES[sample_name])
+    st.sidebar.success(f"{sample_name} 샘플을 적용했습니다.")
+    st.rerun()
+
+st.sidebar.divider()
+
+st.sidebar.header("매장 기본 정보")
 st.sidebar.caption("업종은 카페로 통합하고, 베이커리 성격은 장비 구성으로 반영합니다.")
 store_type = "카페"
 
 area_unit, area_value_col = st.sidebar.columns([0.85, 1.15])
 with area_unit:
-    area_input_unit = st.selectbox("면적 단위", ["평", "㎡"], index=0)
+    area_input_unit = st.selectbox("면적 단위", ["평", "㎡"], key="area_input_unit")
 with area_value_col:
-    area_value = st.number_input("매장 면적", min_value=5.0, max_value=500.0, value=20.0, step=1.0)
+    area_value = st.number_input("매장 면적", min_value=5.0, max_value=500.0, step=1.0, key="area_value")
 
 if area_input_unit == "평":
     area_pyeong = area_value
@@ -880,12 +1165,12 @@ else:
 
 st.sidebar.caption(f"변환 면적: {area_pyeong:.1f}평 / {area_m2:.1f}㎡")
 
-schedule_mode = st.sidebar.radio("운영시간 입력 방식", ["간단 입력", "요일별 입력"], horizontal=True)
+schedule_mode = st.sidebar.radio("운영시간 입력 방식", ["간단 입력", "요일별 입력"], horizontal=True, key="schedule_mode")
 
 if schedule_mode == "간단 입력":
-    open_time = st.sidebar.time_input("오픈 시간", value=time(9, 0))
-    close_time = st.sidebar.time_input("마감 시간", value=time(22, 0))
-    business_days = st.sidebar.slider("월 영업일수", 0, 31, 28)
+    open_time = st.sidebar.time_input("오픈 시간", key="open_time_main")
+    close_time = st.sidebar.time_input("마감 시간", key="close_time_main")
+    business_days = st.sidebar.slider("월 영업일수", 0, 31, key="business_days")
 
     open_hours = close_time.hour + close_time.minute / 60 - (open_time.hour + open_time.minute / 60)
     if open_hours <= 0:
@@ -919,14 +1204,14 @@ st.sidebar.caption(f"예상 월 운영시간: {monthly_hours:.0f}시간")
 
 st.sidebar.divider()
 
-st.sidebar.header("2. 전기요금 정보")
-monthly_kwh = st.sidebar.number_input("월 전력사용량", min_value=100, max_value=20000, value=1800, step=100)
-monthly_bill = st.sidebar.number_input("월 전기요금", min_value=10000, max_value=5000000, value=420000, step=10000)
-contract_power = st.sidebar.number_input("계약전력", min_value=0.0, max_value=100.0, value=15.0, step=1.0, help="모르면 0으로 입력하세요.")
+st.sidebar.header("전기요금 정보")
+monthly_kwh = st.sidebar.number_input("월 전력사용량", min_value=100, max_value=20000, step=100, key="monthly_kwh")
+monthly_bill = st.sidebar.number_input("월 전기요금", min_value=10000, max_value=5000000, step=10000, key="monthly_bill")
+contract_power = st.sidebar.number_input("계약전력", min_value=0.0, max_value=100.0, step=1.0, key="contract_power", help="모르면 0으로 입력하세요.")
 
 st.sidebar.divider()
 
-st.sidebar.header("3. 카페 장비 정보")
+st.sidebar.header("카페 장비 정보")
 st.sidebar.caption("장비를 체크하면 개수를 선택할 수 있습니다.")
 
 equipment_counts = {}
@@ -937,26 +1222,81 @@ for key, item in EQUIPMENT_CATALOG.items():
 
 st.sidebar.divider()
 
-st.sidebar.header("4. 실내환경")
-indoor_temp = st.sidebar.slider("영업시간 평균 실내온도", 18.0, 32.0, 25.5, 0.5)
-indoor_humidity = st.sidebar.slider("평균 실내습도", 20, 90, 55)
+st.sidebar.header("실내환경")
+indoor_temp = st.sidebar.slider("영업시간 평균 실내온도", min_value=18.0, max_value=32.0, step=0.5, key="indoor_temp")
+indoor_humidity = st.sidebar.slider("평균 실내습도", min_value=20, max_value=90, key="indoor_humidity")
 
 st.sidebar.divider()
 
-st.sidebar.header("5. 스마트플러그 장비")
-plug_device = st.sidebar.selectbox(
-    "스마트플러그 연결 장비",
-    ["없음", "쇼케이스 냉장고", "제빙기", "소형 냉장고", "공기청정기", "복합기", "기타 장비"]
+st.sidebar.header("스마트플러그 장비")
+st.sidebar.caption("스마트플러그가 여러 개라면 장비별로 추가해 입력할 수 있습니다.")
+
+smart_plug_count = st.sidebar.number_input(
+    "스마트플러그 연결 장비 수",
+    min_value=0,
+    max_value=8,
+    step=1,
+    key="smart_plug_count"
 )
 
-plug_kwh_day = 0
-still_has_after_hours = 0
-if plug_device != "없음":
-    plug_kwh_day = st.sidebar.number_input("연결 장비 하루 사용량", min_value=0.0, max_value=100.0, value=4.5, step=0.5)
-    still_has_after_hours = st.sidebar.slider("영업시간 외 사용 비중", 0, 100, 25)
+smart_plug_entries = []
+plug_kwh_month = 0.0
+after_hours_kwh_total = 0.0
 
-plug_kwh_month = plug_kwh_day * business_days
-after_hours_ratio = still_has_after_hours
+plug_device_options = [
+    "쇼케이스 냉장고",
+    "제빙기",
+    "소형 냉장고",
+    "냉동고",
+    "공기청정기",
+    "복합기",
+    "오븐",
+    "발효기",
+    "기타 장비"
+]
+
+if smart_plug_count > 0:
+    with st.sidebar.expander("스마트플러그 장비별 입력", expanded=True):
+        for i in range(int(smart_plug_count)):
+            st.markdown(f"**장비 {i + 1}**")
+            plug_device_name = st.selectbox(
+                f"연결 장비 {i + 1}",
+                plug_device_options,
+                key=f"plug_device_{i}"
+            )
+            plug_kwh_day_i = st.number_input(
+                f"하루 사용량 {i + 1}",
+                min_value=0.0,
+                max_value=100.0,
+                value=4.5,
+                step=0.5,
+                key=f"plug_kwh_day_{i}",
+                help="스마트플러그 앱에서 확인한 하루 전력사용량입니다."
+            )
+            after_hours_ratio_i = st.slider(
+                f"영업시간 외 사용 비중 {i + 1}",
+                0,
+                100,
+                25,
+                key=f"after_hours_ratio_{i}"
+            )
+
+            monthly_kwh_i = plug_kwh_day_i * business_days
+            after_hours_kwh_i = monthly_kwh_i * after_hours_ratio_i / 100
+
+            smart_plug_entries.append({
+                "device": plug_device_name,
+                "daily_kwh": plug_kwh_day_i,
+                "monthly_kwh": monthly_kwh_i,
+                "after_hours_ratio": after_hours_ratio_i,
+                "after_hours_kwh": after_hours_kwh_i
+            })
+
+            plug_kwh_month += monthly_kwh_i
+            after_hours_kwh_total += after_hours_kwh_i
+
+after_hours_ratio = (after_hours_kwh_total / plug_kwh_month * 100) if plug_kwh_month > 0 else 0
+plug_device = "여러 장비" if smart_plug_count > 1 else (smart_plug_entries[0]["device"] if smart_plug_count == 1 else "없음")
 
 
 # =========================================================
@@ -996,11 +1336,8 @@ with location_col:
     st.markdown(f"""
     <div class="card-soft">
         <div class="metric-title">현재 기준 위치</div>
-        <b>{st.session_state["selected_location_label"]}</b><br>
-        <span class="small-text">
-        위도: {st.session_state["latitude"]:.6f}<br>
-        경도: {st.session_state["longitude"]:.6f}
-        </span>
+        <b>{st.session_state["selected_location_label"]}</b>
+        <div class="metric-caption">주소 기반으로 날씨 데이터와 지도를 연결합니다.</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -1127,7 +1464,7 @@ st.divider()
 # Tabs
 # =========================================================
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["진단 요약", "장비와 계약전력", "날씨와 실내환경", "추천 조치", "리포트"])
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["진단 요약", "장비와 계약전력", "날씨와 실내환경", "스마트플러그", "추천 조치", "리포트"])
 
 
 # =========================================================
@@ -1271,6 +1608,46 @@ with tab3:
 # =========================================================
 
 with tab4:
+    st.markdown('<div class="section-title">스마트플러그 장비 분석</div>', unsafe_allow_html=True)
+
+    if smart_plug_count == 0:
+        st.info("스마트플러그 장비가 아직 입력되지 않았습니다. 쇼케이스, 제빙기, 냉장고처럼 상시 가동되는 장비부터 연결하면 진단 신뢰도를 높일 수 있습니다.")
+    else:
+        smart_plug_df = pd.DataFrame([
+            {
+                "장비": item["device"],
+                "하루 사용량 kWh": item["daily_kwh"],
+                "월 예상 사용량 kWh": item["monthly_kwh"],
+                "영업시간 외 비중 %": item["after_hours_ratio"],
+                "영업시간 외 사용량 kWh": item["after_hours_kwh"],
+                "월 예상 비용": won(item["monthly_kwh"] * price_per_kwh),
+                "영업시간 외 예상 비용": won(item["after_hours_kwh"] * price_per_kwh)
+            }
+            for item in smart_plug_entries
+        ])
+        st.dataframe(smart_plug_df, use_container_width=True, hide_index=True)
+
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            metric_card("스마트플러그 월 사용량", kwh(plug_kwh_month))
+        with c2:
+            metric_card("영업시간 외 사용량", kwh(after_hours_kwh_total))
+        with c3:
+            metric_card("영업시간 외 비중", f"{after_hours_ratio:.0f}%")
+
+        if after_hours_ratio >= 25:
+            st.warning("스마트플러그로 입력된 장비들의 영업시간 외 사용 비중이 높은 편입니다. 폐점 후 운전이 필요한 장비와 불필요한 장비를 구분해 점검하는 것이 좋습니다.")
+        else:
+            st.success("현재 입력된 스마트플러그 장비에서는 영업시간 외 낭비 신호가 강하게 보이지 않습니다.")
+
+    st.caption("현재는 스마트플러그 앱에서 확인한 값을 직접 입력하는 방식입니다. 추후 CSV 업로드나 실시간 API 연동으로 확장할 수 있습니다.")
+
+
+# =========================================================
+# Tab 5
+# =========================================================
+
+with tab5:
     st.markdown('<div class="section-title">CafeWatt 추천 조치</div>', unsafe_allow_html=True)
 
     for idx, rec in enumerate(recommendations, start=1):
@@ -1292,10 +1669,10 @@ with tab4:
 
 
 # =========================================================
-# Tab 5
+# Tab 6
 # =========================================================
 
-with tab5:
+with tab6:
     st.markdown('<div class="section-title">진단 리포트 다운로드</div>', unsafe_allow_html=True)
 
     report_text = build_report_text(
@@ -1315,7 +1692,8 @@ with tab5:
         monthly_hours,
         equipment_counts,
         recommendations,
-        summary
+        summary,
+        smart_plug_entries
     )
 
     st.text_area("리포트 미리보기", report_text, height=420)
@@ -1348,7 +1726,7 @@ with tab5:
         else:
             st.warning("PDF 다운로드를 사용하려면 requirements.txt에 reportlab을 추가하세요.")
 
-    st.caption("PDF 리포트는 안정적인 표시를 위해 영문 형식으로 생성됩니다.")
+    st.caption("PDF 리포트는 한글 형식의 진단 보고서로 생성됩니다.")
 
 
 # =========================================================
@@ -1359,18 +1737,18 @@ st.divider()
 
 with st.expander("CafeWatt 진단 기준 안내"):
     st.write("""
-    CafeWatt는 카페의 기본 에너지 진단용 MVP입니다.
+    CafeWatt는 카페의 에너지 사용 현황을 빠르게 파악하기 위한 기초 에너지 진단 도구입니다.
 
-    현재 결과는 입력값, 위치 기반 날씨 데이터, 장비 구성 가정, 단순 벤치마크를 바탕으로 계산됩니다.
-    기존의 일반 카페와 베이커리 카페 구분은 제거했고, 베이커리형 특성은 오븐, 발효기, 냉동고, 쇼케이스 등 장비 선택으로 반영합니다.
+    현재 결과는 사용자가 입력한 전기요금, 운영시간, 장비 구성, 실내환경 정보와 위치 기반 날씨 데이터를 함께 반영해 계산됩니다.
+    일반 카페와 베이커리 카페를 별도로 구분하지 않고, 오븐, 발효기, 냉동고, 쇼케이스 등 선택한 장비 구성을 통해 베이커리형 부하 특성을 반영합니다.
 
     계약전력 진단은 사전 참고용입니다.
     실제 계약전력 변경은 한전, 전기공사업체, 전기기사와 확인해야 합니다.
 
-    스마트플러그 분석은 연결된 특정 장비의 사용량만 보여줍니다.
+    스마트플러그 분석은 사용자가 입력한 장비별 사용량을 기준으로 영업시간 외 사용 가능성과 예상 비용을 계산합니다.
     매장 전체 전력사용량은 월 전력사용량 입력값을 기준으로 판단합니다.
 
     주소 검색은 Kakao Local API를 사용하고, 날씨 데이터는 Open Meteo API를 사용합니다.
     """)
 
-st.caption("CafeWatt MVP 0.6 | 카페 전기요금 진단 AI")
+st.caption("CafeWatt | 카페 전기요금 진단 도구")
