@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>CafeWatt | 카페 전기요금 진단 AI</title>
-  <meta name="description" content="CafeWatt는 카페와 베이커리 카페의 전기요금, 전력사용량, 매장 면적, 운영시간, 장비 구성, 날씨 데이터를 기반으로 에너지 사용 수준을 진단하는 AI 기반 서비스입니다." />
+  <title>CafeWatt | 카페 전기요금 진단 도구</title>
+  <meta name="description" content="CafeWatt는 카페의 전기요금, 월 전력사용량, 운영시간, 장비 구성, 실내환경, 날씨 데이터를 바탕으로 에너지 사용 현황을 빠르게 파악하는 기초 에너지 진단 도구입니다." />
 
   <style>
     :root {
@@ -338,6 +338,19 @@
       font-size: 14px;
     }
 
+    .notice {
+      background: #ffffff;
+      border: 1px solid var(--line);
+      border-radius: 28px;
+      padding: 30px;
+      color: var(--muted);
+      box-shadow: 0 14px 34px rgba(79, 47, 22, 0.05);
+    }
+
+    .notice strong {
+      color: var(--text);
+    }
+
     .cta {
       background: var(--brand-dark);
       color: white;
@@ -439,11 +452,11 @@
     <section class="hero">
       <div class="container hero-grid">
         <div>
-          <div class="eyebrow">카페 전기요금 진단 AI</div>
-          <h1>카페의 전기 사용을 더 쉽게 진단하세요.</h1>
+          <div class="eyebrow">카페 전기요금 진단 도구</div>
+          <h1>카페의 전기 사용 현황을 빠르게 파악하세요.</h1>
           <p>
-            CafeWatt는 카페와 베이커리 카페의 전기요금, 월 전력사용량, 매장 면적, 운영시간,
-            장비 구성, 실내환경, 날씨 데이터를 연결해 에너지 사용 수준과 절감 가능성을 분석합니다.
+            CafeWatt는 카페의 전기요금, 월 전력사용량, 운영시간, 장비 구성, 실내환경,
+            위치 기반 날씨 데이터를 바탕으로 에너지 사용 수준과 절감 가능성을 진단합니다.
           </p>
 
           <div class="actions">
@@ -461,9 +474,9 @@
             <div class="dashboard-top">
               <div>
                 <div class="mini-title">종합 에너지 점수</div>
-                <div class="mini-value">68점</div>
+                <div class="mini-value">88점</div>
               </div>
-              <div class="score">68</div>
+              <div class="score">88</div>
             </div>
 
             <div class="dashboard-grid">
@@ -476,17 +489,17 @@
                 <div class="mini-value">420,000원</div>
               </div>
               <div class="mini-card">
-                <div class="mini-title">예상 절감 금액</div>
-                <div class="mini-value">21,000원</div>
+                <div class="mini-title">진단 신뢰도</div>
+                <div class="mini-value">높음</div>
               </div>
               <div class="mini-card">
-                <div class="mini-title">현재 외기온도</div>
-                <div class="mini-value">29.4°C</div>
+                <div class="mini-title">예상 절감 금액</div>
+                <div class="mini-value">21,000원</div>
               </div>
             </div>
 
             <div class="status">
-              냉장 장비와 영업시간 외 사용량을 우선 점검하세요.
+              냉장 장비, 스마트플러그 사용량, 영업시간 외 전력 사용을 함께 확인하세요.
             </div>
           </div>
         </div>
@@ -498,7 +511,7 @@
         <div class="section-head">
           <h2>카페 운영에 맞춘 에너지 진단</h2>
           <p>
-            일반적인 건물 에너지 분석이 아니라, 카페와 베이커리 카페의 실제 운영 특성을 기준으로 진단합니다.
+            CafeWatt는 단순 전기요금 계산기가 아니라, 카페 운영시간과 장비 구성을 함께 반영해 전기 사용 수준을 확인하는 도구입니다.
           </p>
         </div>
 
@@ -507,7 +520,7 @@
             <div class="icon">⚡</div>
             <h3>전기요금 진단</h3>
             <p>
-              월 전기요금과 전력사용량을 바탕으로 면적당 사용량, 운영시간당 사용량, 평균 단가를 분석합니다.
+              월 전력사용량과 전기요금을 바탕으로 운영시간당 전력사용량, 평균 전기 단가, 예상 절감 금액을 계산합니다.
             </p>
           </div>
 
@@ -521,9 +534,17 @@
 
           <div class="feature-card">
             <div class="icon">🧊</div>
-            <h3>장비 구성 분석</h3>
+            <h3>카페 장비 구성 반영</h3>
             <p>
-              쇼케이스, 제빙기, 오븐, 냉장고, 에어컨 등 카페 장비 구성을 바탕으로 피크부하를 추정합니다.
+              에어컨, 냉장고, 냉동고, 쇼케이스, 제빙기, 오븐, 발효기 등 장비 구성을 바탕으로 피크부하를 추정합니다.
+            </p>
+          </div>
+
+          <div class="feature-card">
+            <div class="icon">🔌</div>
+            <h3>스마트플러그 입력</h3>
+            <p>
+              여러 개의 스마트플러그 장비를 추가해 장비별 사용량, 영업시간 외 사용 비중, 예상 비용을 확인할 수 있습니다.
             </p>
           </div>
 
@@ -536,18 +557,10 @@
           </div>
 
           <div class="feature-card">
-            <div class="icon">📊</div>
-            <h3>업종 기준 비교</h3>
-            <p>
-              일반 카페와 베이커리 카페의 기준값을 나누어 같은 업종 대비 전력 사용 수준을 비교합니다.
-            </p>
-          </div>
-
-          <div class="feature-card">
             <div class="icon">📝</div>
-            <h3>진단 리포트</h3>
+            <h3>한글 PDF 리포트</h3>
             <p>
-              핵심 결과와 추천 조치를 텍스트 리포트로 정리해 다운로드할 수 있습니다.
+              핵심 진단 결과, 장비 구성, 스마트플러그 데이터, 추천 조치를 한글 PDF 리포트로 다운로드할 수 있습니다.
             </p>
           </div>
         </div>
@@ -557,9 +570,9 @@
     <section id="process">
       <div class="container">
         <div class="section-head">
-          <h2>사용 방법은 간단합니다</h2>
+          <h2>고지서와 매장 정보만으로 시작할 수 있습니다</h2>
           <p>
-            고지서 정보와 매장 기본 정보만 입력해도 첫 진단을 시작할 수 있습니다.
+            센서나 자동 연동 없이도 전기요금 고지서와 기본 운영 정보를 입력하면 1차 진단을 시작할 수 있습니다.
           </p>
         </div>
 
@@ -567,7 +580,7 @@
           <div class="step">
             <div class="step-num">1</div>
             <h3>매장 정보 입력</h3>
-            <p>업종, 면적, 운영시간, 월 영업일수를 입력합니다.</p>
+            <p>면적, 운영시간, 월 영업일수 또는 요일별 운영시간을 입력합니다.</p>
           </div>
 
           <div class="step">
@@ -578,14 +591,14 @@
 
           <div class="step">
             <div class="step-num">3</div>
-            <h3>주소와 날씨 연결</h3>
-            <p>매장 주소를 기반으로 현재 날씨 데이터를 불러옵니다.</p>
+            <h3>장비와 날씨 반영</h3>
+            <p>카페 장비 구성과 주소 기반 현재 날씨를 진단에 연결합니다.</p>
           </div>
 
           <div class="step">
             <div class="step-num">4</div>
-            <h3>진단 결과 확인</h3>
-            <p>점수, 절감 금액, 추천 조치, 리포트를 확인합니다.</p>
+            <h3>결과와 리포트 확인</h3>
+            <p>진단 점수, 신뢰도, 절감 가능성, 추천 조치, PDF 리포트를 확인합니다.</p>
           </div>
         </div>
       </div>
@@ -594,9 +607,9 @@
     <section id="target">
       <div class="container">
         <div class="section-head">
-          <h2>누구에게 필요한가요?</h2>
+          <h2>이런 카페에 유용합니다</h2>
           <p>
-            전기요금이 부담되지만 어디서 낭비가 발생하는지 알기 어려운 카페 운영자를 위한 도구입니다.
+            전기요금이 부담되지만 어디서 낭비가 발생하는지 알기 어려운 카페 운영자를 위한 기초 진단 도구입니다.
           </p>
         </div>
 
@@ -604,20 +617,37 @@
           <div class="feature-card">
             <div class="icon">☕</div>
             <h3>개인 카페</h3>
-            <p>전기요금 고지서를 바탕으로 매장 에너지 사용 수준을 빠르게 파악할 수 있습니다.</p>
+            <p>
+              전기요금 고지서를 바탕으로 현재 매장의 전기 사용 수준을 빠르게 확인할 수 있습니다.
+            </p>
           </div>
 
           <div class="feature-card">
             <div class="icon">🥐</div>
-            <h3>베이커리 카페</h3>
-            <p>오븐, 냉동고, 쇼케이스, 냉방이 겹치는 매장의 피크 부담을 확인할 수 있습니다.</p>
+            <h3>베이커리형 카페</h3>
+            <p>
+              오븐, 발효기, 냉동고, 쇼케이스 등 장비 선택을 통해 베이커리형 부하 특성을 반영할 수 있습니다.
+            </p>
           </div>
 
           <div class="feature-card">
-            <div class="icon">🏢</div>
-            <h3>소상공인 에너지 관리</h3>
-            <p>전문 에너지 진단 전, 간단한 1차 점검 도구로 활용할 수 있습니다.</p>
+            <div class="icon">🔌</div>
+            <h3>스마트플러그 사용자</h3>
+            <p>
+              쇼케이스, 제빙기, 소형 냉장고 등 스마트플러그로 측정한 장비별 사용량을 진단에 반영할 수 있습니다.
+            </p>
           </div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="container">
+        <div class="notice">
+          <strong>CafeWatt는 기초 에너지 진단 도구입니다.</strong><br />
+          현재 결과는 사용자가 입력한 전기요금, 월 전력사용량, 운영시간, 장비 구성, 실내환경 정보와
+          위치 기반 날씨 데이터를 바탕으로 계산됩니다. 실제 절감 효과는 장비 효율, 사용 패턴,
+          전기요금제, 계절, 매장 운영 방식에 따라 달라질 수 있습니다.
         </div>
       </div>
     </section>
@@ -643,7 +673,7 @@
   <footer>
     <div class="container footer-inner">
       <div>© 2026 CafeWatt. Built by Joungho So.</div>
-      <div>카페 전기요금 진단 AI MVP</div>
+      <div>카페 전기요금 진단 도구</div>
     </div>
   </footer>
 </body>
