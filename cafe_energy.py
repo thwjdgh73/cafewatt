@@ -3,6 +3,7 @@ import pandas as pd
 import requests
 from datetime import time, datetime
 from io import BytesIO
+from urllib.parse import quote
 
 try:
     import folium
@@ -1416,6 +1417,38 @@ def build_pdf_report(report_text):
     return buffer.getvalue()
 
 
+
+
+def build_inquiry_text(store_name, contact_name, phone, email, preferred_contact, inquiry_type, memo, management_fit, monthly_bill, estimated_saving_low, estimated_saving_high, selected_location_label):
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    return f"""CafeWatt 관리 상담 요청
+작성 시각: {now}
+
+1. 매장 정보
+매장명: {store_name or '미입력'}
+위치: {selected_location_label}
+
+2. 연락 정보
+담당자명: {contact_name or '미입력'}
+연락처: {phone or '미입력'}
+이메일: {email or '미입력'}
+선호 연락 방식: {preferred_contact}
+
+3. 진단 결과 요약
+월 전기요금: {won(monthly_bill)}
+월 예상 절감 금액: {won(estimated_saving_low)} ~ {won(estimated_saving_high)}
+관리 적합도: {management_fit.get('label', '확인 필요')}
+권장 관리 단계: {management_fit.get('tier', '확인 필요')} 수준
+
+4. 관심 항목
+{inquiry_type}
+
+5. 요청 내용
+{memo or '미입력'}
+
+참고: 이 요청 내용은 앱에서 자동 전송되지 않습니다. 복사하거나 이메일로 보내 상담 요청에 사용할 수 있습니다.
+"""
+
 # =========================================================
 # Header
 # =========================================================
@@ -1434,6 +1467,7 @@ st.markdown("""
     <span class="info-chip">계약전력 점검</span>
     <span class="info-chip">진단 신뢰도</span>
     <span class="info-chip">PDF 리포트</span>
+    <span class="info-chip">관리 상담</span>
 </div>
 """, unsafe_allow_html=True)
 
@@ -1859,6 +1893,14 @@ for idx, action in enumerate(next_actions):
         </div>
         """, unsafe_allow_html=True)
 
+st.markdown(f"""
+<div class="card-soft">
+    <div class="metric-title">관리형 서비스 방향</div>
+    <p><b>{management_fit["label"]}</b> 매장은 사용자가 매일 직접 조작하는 방식보다, 장비별 사용량과 전기요금 변동을 꾸준히 추적해 다시 요금이 올라가지 않도록 관리하는 방식이 더 적합합니다.</p>
+    <p style="margin-bottom: 0;">스마트플러그나 온습도 센서가 필요한 매장은 직접 CSV를 올리는 대신, 장비 설치와 월별 리포트 관리를 통해 더 편하게 사용할 수 있습니다.</p>
+</div>
+""", unsafe_allow_html=True)
+
 st.divider()
 
 
@@ -1916,6 +1958,75 @@ with tab1:
         ])
         st.dataframe(savings_df, use_container_width=True, hide_index=True)
         st.info(savings_explanation)
+
+        st.markdown('<div class="section-title">관리 상담 요청</div>', unsafe_allow_html=True)
+        st.write("월 예상 절감 금액과 관리 적합도를 확인한 뒤, 스마트플러그나 온습도 센서 설치 상담을 바로 요청할 수 있습니다. 고객이 직접 CSV를 올리는 방식보다, 필요한 장비를 설치하고 지속적으로 관리하는 방향을 전제로 합니다.")
+        
+        inquiry_left, inquiry_right = st.columns([1, 1])
+        with inquiry_left:
+            store_name = st.text_input("매장명", placeholder="예: CafeWatt 강남점")
+            contact_name = st.text_input("담당자명", placeholder="예: 홍길동")
+            phone = st.text_input("연락처", placeholder="예: 010-0000-0000")
+            email = st.text_input("이메일", placeholder="예: example@email.com")
+        with inquiry_right:
+            preferred_contact = st.selectbox("선호 연락 방식", ["전화", "문자", "이메일", "카카오톡"], index=1)
+            inquiry_type = st.multiselect(
+                "관심 항목",
+                [
+                    "스마트플러그 설치 상담",
+                    "온습도 센서 설치 상담",
+                    "월별 전기요금 리포트",
+                    "장비별 사용량 분석",
+                    "폐점 후 장비 사용 점검",
+                    "계약전력 점검",
+                ],
+                default=["스마트플러그 설치 상담", "월별 전기요금 리포트"] if management_fit["tier"] in ["Basic", "Pro", "Business"] else ["월별 전기요금 리포트"]
+            )
+            memo = st.text_area("추가 요청사항", placeholder="예: 쇼케이스와 제빙기 전력 사용량을 먼저 확인하고 싶습니다.", height=130)
+        
+        inquiry_text = build_inquiry_text(
+            store_name,
+            contact_name,
+            phone,
+            email,
+            preferred_contact,
+            ", ".join(inquiry_type) if inquiry_type else "미선택",
+            memo,
+            management_fit,
+            monthly_bill,
+            estimated_saving_low,
+            estimated_saving_high,
+            selected_location_label,
+        )
+        
+        st.markdown(f"""
+        <div class="card-soft">
+            <div class="metric-title">현재 진단 기준 상담 방향</div>
+            <p><b>{management_fit["label"]}</b> · 권장 관리 단계: <b>{management_fit["tier"]} 수준</b></p>
+            <p>{management_fit["message"]}</p>
+            <p style="margin-bottom: 0;">CafeWatt의 관리 방향은 고객이 매일 직접 조작하는 것이 아니라, 스마트플러그와 센서 데이터를 바탕으로 이상 사용을 빠르게 발견하고 월별 리포트로 전기요금이 다시 올라가지 않도록 관리하는 것입니다.</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.text_area("상담 요청 내용 미리보기", inquiry_text, height=300)
+        
+        mail_subject = quote("CafeWatt 관리 상담 요청")
+        mail_body = quote(inquiry_text)
+        st.link_button(
+            "이메일로 상담 요청하기",
+            f"mailto:thwjdgh73@gmail.com?subject={mail_subject}&body={mail_body}",
+            use_container_width=True,
+        )
+        
+        st.download_button(
+            label="상담 요청 내용 TXT 다운로드",
+            data=inquiry_text,
+            file_name=f"CafeWatt_Inquiry_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
+            mime="text/plain",
+            use_container_width=True,
+        )
+        
+        st.info("현재는 이메일 또는 요청 내용 다운로드 방식입니다. 실제 서비스 단계에서는 Google Form, 카카오톡 채널, CRM 또는 관리자 대시보드와 연결할 수 있습니다.")
 
         with st.expander("관리 단계 기준 보기"):
             st.write("CafeWatt는 모든 카페에 유료 관리를 권장하지 않습니다. 매장 규모, 절감 가능성, 장비 구성, 스마트플러그 사용 여부를 기준으로 적합한 관리 단계를 제안합니다.")
@@ -2066,7 +2177,7 @@ with tab4:
         else:
             st.success("현재 입력된 스마트플러그 장비에서는 영업시간 외 낭비 신호가 강하게 보이지 않습니다.")
 
-    st.caption("현재는 스마트플러그 앱에서 확인한 값을 직접 입력하는 방식입니다. 추후 CSV 업로드나 실시간 API 연동으로 확장할 수 있습니다.")
+    st.caption("현재는 스마트플러그 앱에서 확인한 값을 직접 입력하는 방식입니다. 정기 관리가 필요한 매장은 스마트플러그와 온습도 센서를 설치해 장비별 사용량을 지속적으로 확인하는 방향으로 확장할 수 있습니다.")
 
 
 # =========================================================
@@ -2177,6 +2288,7 @@ with st.expander("CafeWatt 진단 기준 안내"):
     실제 계약전력 변경은 한전, 전기공사업체, 전기기사와 확인해야 합니다.
 
     스마트플러그 분석은 사용자가 입력한 장비별 사용량을 기준으로 영업시간 외 사용 가능성과 예상 비용을 계산합니다.
+    정기 관리가 필요한 매장은 고객이 직접 CSV를 다루기보다, 스마트플러그와 온습도 센서를 설치해 월별 리포트로 관리하는 방향이 적합합니다.
     매장 전체 전력사용량은 월 전력사용량 입력값을 기준으로 판단합니다.
 
     주소 검색은 Kakao Local API를 사용하고, 날씨 데이터는 Open Meteo API를 사용합니다.
