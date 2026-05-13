@@ -185,6 +185,38 @@ BASE_BENCHMARK = {
     "description": "카페 기본 운영 기준. 베이커리 성격은 오븐, 발효기, 냉동고 등 장비 구성으로 자동 반영합니다."
 }
 
+MANAGEMENT_TIERS = {
+    "free": {
+        "name": "Free",
+        "price": "0원",
+        "target": "1회 진단, 간단 리포트",
+        "label": "무료 진단 권장"
+    },
+    "basic": {
+        "name": "Basic",
+        "price": "월 9,900원 ~ 14,900원",
+        "target": "소형, 일반 카페",
+        "label": "정기 점검 권장"
+    },
+    "pro": {
+        "name": "Pro",
+        "price": "월 29,000원 ~ 39,000원",
+        "target": "중형, 베이커리형, 장비 많은 카페",
+        "label": "유료 관리 검토"
+    },
+    "business": {
+        "name": "Business",
+        "price": "매장당 월 49,000원 이상",
+        "target": "다점포, 프랜차이즈",
+        "label": "다점포 관리 검토"
+    }
+}
+
+BASIC_PRICE_LOW = 9900
+BASIC_PRICE_HIGH = 14900
+PRO_PRICE_LOW = 29000
+PRO_PRICE_HIGH = 39000
+
 EQUIPMENT_CATALOG = {
     "espresso_machine": {"label": "에스프레소 머신", "kw": 2.5, "default": 1, "essential": True},
     "grinder": {"label": "그라인더", "kw": 0.4, "default": 1, "essential": True},
@@ -515,6 +547,43 @@ if "longitude" not in st.session_state:
 
 if "last_search_message" not in st.session_state:
     st.session_state["last_search_message"] = ""
+
+# 첫 화면 기본값을 카페 평균적인 입력값으로 세팅합니다.
+# 이전 세션에서 0일, 현재 시각, 계약전력 0kW처럼 비어 있는 값이 남아 있으면 평균값으로 보정합니다.
+if "average_defaults_v13_applied" not in st.session_state:
+    default_profile = SAMPLE_PROFILES.get("일반 카페", {})
+
+    st.session_state.setdefault("area_input_unit", default_profile.get("area_input_unit", "평"))
+    st.session_state.setdefault("area_value", float(default_profile.get("area_value", 22.0)))
+    st.session_state.setdefault("schedule_mode", "간단 입력")
+    st.session_state["open_time_main"] = parse_time_string(default_profile.get("open_time", "09:00"), time(9, 0))
+    st.session_state["close_time_main"] = parse_time_string(default_profile.get("close_time", "22:00"), time(22, 0))
+    st.session_state["business_days"] = int(default_profile.get("business_days", 28))
+    st.session_state.setdefault("monthly_kwh", int(default_profile.get("monthly_kwh", 1800)))
+    st.session_state.setdefault("monthly_bill", int(default_profile.get("monthly_bill", 420000)))
+    st.session_state.setdefault("monthly_kwh_text", format_number_text(default_profile.get("monthly_kwh", 1800)))
+    st.session_state.setdefault("monthly_bill_text", format_number_text(default_profile.get("monthly_bill", 420000)))
+    st.session_state["contract_power"] = float(default_profile.get("contract_power", 15.0))
+    st.session_state.setdefault("indoor_temp", float(default_profile.get("indoor_temp", 25.5)))
+    st.session_state.setdefault("indoor_humidity", int(default_profile.get("indoor_humidity", 55)))
+
+    # 기본 장비 구성도 일반 카페 기준으로 보정합니다.
+    for key, item in EQUIPMENT_CATALOG.items():
+        default_count = int(default_profile.get("equipment_counts", {}).get(key, item["default"] if item.get("essential") else 0))
+        st.session_state[f"has_{key}"] = default_count > 0
+        if default_count > 0:
+            st.session_state[f"count_{key}"] = default_count
+
+    st.session_state["average_defaults_v13_applied"] = True
+
+# 안전 보정: 사용자가 아직 값을 넣기 전 0 또는 현재 시각으로 남은 경우 평균값으로 보정합니다.
+if st.session_state.get("business_days", 28) == 0:
+    st.session_state["business_days"] = 28
+if float(st.session_state.get("contract_power", 15.0) or 0) == 0:
+    st.session_state["contract_power"] = 15.0
+if st.session_state.get("open_time_main") == st.session_state.get("close_time_main"):
+    st.session_state["open_time_main"] = time(9, 0)
+    st.session_state["close_time_main"] = time(22, 0)
 
 
 # =========================================================
@@ -919,6 +988,213 @@ def calculate_recommendations(
     return sorted(recommendations, key=lambda x: impact_order.get(x["impact"], 3))[:5]
 
 
+
+
+def calculate_savings_breakdown(
+    monthly_bill,
+    price_per_kwh,
+    indoor_temp,
+    outdoor_temp,
+    ratio_hour,
+    contract_status,
+    equipment_counts,
+    smart_plug_entries,
+    after_hours_kwh_total
+):
+    """입력값 기반으로 월 예상 절감 금액을 항목별로 분해합니다."""
+    items = []
+
+    # 1. 냉방 설정과 운전 패턴 개선
+    if indoor_temp < 24 and outdoor_temp >= 24:
+        cooling_low = monthly_bill * 0.02
+        cooling_high = monthly_bill * 0.06
+        cooling_reason = "실내온도가 낮은 편이어서 설정온도 조정이나 구역별 운전으로 냉방 전력을 줄일 수 있습니다."
+    elif ratio_hour > 1.15 and outdoor_temp >= 26:
+        cooling_low = monthly_bill * 0.015
+        cooling_high = monthly_bill * 0.045
+        cooling_reason = "운영시간 대비 전력사용량이 높고 외기온도가 높아 냉방 운전 패턴 점검 여지가 있습니다."
+    else:
+        cooling_low = monthly_bill * 0.005
+        cooling_high = monthly_bill * 0.02
+        cooling_reason = "현재 입력값 기준으로 냉방 절감 여지는 제한적이지만 설정온도와 운전시간 점검은 가능합니다."
+
+    items.append({
+        "항목": "냉방 설정과 운전 패턴",
+        "월 최소 절감": cooling_low,
+        "월 최대 절감": cooling_high,
+        "근거": cooling_reason
+    })
+
+    # 2. 영업시간 외 스마트플러그 장비 사용 절감
+    if smart_plug_entries and after_hours_kwh_total > 0:
+        after_cost = after_hours_kwh_total * price_per_kwh
+        smart_low = after_cost * 0.35
+        smart_high = after_cost * 0.75
+        smart_reason = "스마트플러그로 입력된 장비의 영업시간 외 사용량을 기준으로 조정 가능한 비용을 추정했습니다."
+    else:
+        smart_low = 0
+        smart_high = 0
+        smart_reason = "스마트플러그 데이터가 없어 영업시간 외 장비 사용 절감액은 별도로 계산하지 않았습니다."
+
+    items.append({
+        "항목": "영업시간 외 장비 사용",
+        "월 최소 절감": smart_low,
+        "월 최대 절감": smart_high,
+        "근거": smart_reason
+    })
+
+    # 3. 냉장 장비 점검
+    cold_count = equipment_counts.get("showcase", 0) + equipment_counts.get("refrigerator", 0) + equipment_counts.get("freezer", 0)
+    if cold_count >= 3:
+        cold_low = monthly_bill * 0.01
+        cold_high = monthly_bill * 0.04
+        cold_reason = "쇼케이스, 냉장고, 냉동고 등 상시 운전 장비가 많아 방열 공간, 문 패킹, 설정온도 점검 여지가 있습니다."
+    elif cold_count > 0:
+        cold_low = monthly_bill * 0.005
+        cold_high = monthly_bill * 0.02
+        cold_reason = "냉장 장비가 있어 기본적인 방열 공간과 설정온도 점검을 통한 절감 여지가 있습니다."
+    else:
+        cold_low = 0
+        cold_high = 0
+        cold_reason = "냉장 장비 입력이 없어 냉장 장비 절감액은 별도로 계산하지 않았습니다."
+
+    items.append({
+        "항목": "냉장 장비 점검",
+        "월 최소 절감": cold_low,
+        "월 최대 절감": cold_high,
+        "근거": cold_reason
+    })
+
+    # 4. 계약전력 조정 가능성
+    if contract_status == "계약전력 과다 가능성":
+        contract_low = monthly_bill * 0.02
+        contract_high = monthly_bill * 0.06
+        contract_reason = "입력된 장비와 추정 피크부하 대비 계약전력이 높을 가능성이 있어 기본요금 점검 여지가 있습니다."
+    else:
+        contract_low = 0
+        contract_high = 0
+        contract_reason = "현재 입력값만으로는 계약전력 조정에 따른 절감액을 별도로 반영하지 않았습니다."
+
+    items.append({
+        "항목": "계약전력 점검",
+        "월 최소 절감": contract_low,
+        "월 최대 절감": contract_high,
+        "근거": contract_reason
+    })
+
+    raw_low = sum(item["월 최소 절감"] for item in items)
+    raw_high = sum(item["월 최대 절감"] for item in items)
+
+    cap_low = monthly_bill * 0.03 if ratio_hour < 0.85 else monthly_bill * 0.08
+    cap_high = monthly_bill * 0.10 if ratio_hour < 0.85 else monthly_bill * 0.25
+
+    total_low = min(raw_low, cap_low)
+    total_high = min(max(raw_high, total_low), cap_high)
+
+    if monthly_bill < 300000 and total_high < 20000:
+        explanation = "월 전기요금과 예상 절감 범위가 낮아, 현재는 Free 수준의 무료 진단이나 월별 재점검 용도로 활용하는 것이 적합합니다."
+    elif total_high >= 50000 or monthly_bill >= 800000:
+        explanation = "월 예상 절감 가능성이나 전기요금 규모를 고려하면 Pro 수준의 정기 관리 기능을 검토할 수 있습니다."
+    else:
+        explanation = "예상 절감액이 중간 수준이거나 상시 장비가 있는 매장은 Basic 수준의 월별 점검과 리포트 관리가 적합할 수 있습니다."
+
+    return items, total_low, total_high, explanation
+
+
+def calculate_management_fit(estimated_saving_low, estimated_saving_high, monthly_bill, ratio_hour, equipment_counts, smart_plug_count):
+    """절감 가능성, 전기요금 규모, 장비 복잡도를 기준으로 적합한 관리 단계를 판단합니다."""
+    complex_equipment_count = (
+        equipment_counts.get("showcase", 0)
+        + equipment_counts.get("ice_machine", 0)
+        + equipment_counts.get("freezer", 0)
+        + equipment_counts.get("oven", 0)
+        + equipment_counts.get("proofer", 0)
+        + equipment_counts.get("ac", 0)
+    )
+
+    bakery_like = equipment_counts.get("oven", 0) > 0 or equipment_counts.get("proofer", 0) > 0
+    many_smart_plugs = smart_plug_count >= 3
+    business_scale = monthly_bill >= 1200000 or many_smart_plugs and monthly_bill >= 900000
+
+    if business_scale:
+        return {
+            "label": "다점포 관리 검토",
+            "tier": "Business",
+            "price_range": MANAGEMENT_TIERS["business"]["price"],
+            "level": "danger",
+            "message": "현재 매장은 전기요금 규모와 관리 복잡도가 큰 편입니다. 여러 매장의 전기요금 변화, 장비별 사용량, 이상 사용 여부를 지속적으로 관리하는 Business 수준의 운영 구조를 검토할 수 있습니다.",
+            "payback": "Business 수준",
+            "basis": "월 전기요금 규모, 스마트플러그 수, 장비 복잡도, 관리 범위를 함께 반영했습니다.",
+            "value_message": "단순 절감보다 매장별 전력 사용 변동을 계속 추적하고, 이상 사용을 빠르게 발견하는 관리 가치가 큽니다."
+        }
+
+    if estimated_saving_high < 20000 and monthly_bill < 300000 and ratio_hour <= 1.15 and complex_equipment_count <= 3:
+        return {
+            "label": "무료 진단 권장",
+            "tier": "Free",
+            "price_range": MANAGEMENT_TIERS["free"]["price"],
+            "level": "good",
+            "message": "현재 매장은 전기요금 절감 가능성이 크지 않습니다. 유료 관리보다는 무료 진단으로 현재 상태를 확인하고, 다음 달 고지서와 비교하는 방식이 적합합니다.",
+            "payback": "Free 수준",
+            "basis": "월 예상 절감액이 낮고, 전기요금 규모와 장비 구성이 비교적 단순합니다.",
+            "value_message": "절감액이 작은 매장은 월 구독보다 사용량이 갑자기 증가하는지 확인하는 가벼운 점검 용도가 더 적합합니다."
+        }
+
+    if estimated_saving_high >= 50000 or monthly_bill >= 800000 or ratio_hour > 1.35 or complex_equipment_count >= 6 or bakery_like:
+        return {
+            "label": "유료 관리 검토",
+            "tier": "Pro",
+            "price_range": MANAGEMENT_TIERS["pro"]["price"],
+            "level": "danger",
+            "message": "현재 매장은 월 예상 절감 가능성이 높거나 장비 구성이 복잡하여 정기적인 에너지 관리가 적합합니다. 스마트플러그 기반 장비별 사용량 분석과 월별 리포트를 함께 활용하면 낭비 요인을 더 구체적으로 확인할 수 있습니다.",
+            "payback": "Pro 수준",
+            "basis": "월 예상 절감액, 전기요금 규모, 베이커리형 장비 또는 부하 큰 장비 구성을 반영했습니다.",
+            "value_message": "가치는 한 번의 절감보다 전기 사용량이 다시 증가하지 않도록 장비별 이상 사용과 폐점 후 사용을 지속적으로 잡아내는 데 있습니다."
+        }
+
+    return {
+        "label": "정기 점검 권장",
+        "tier": "Basic",
+        "price_range": MANAGEMENT_TIERS["basic"]["price"],
+        "level": "warning",
+        "message": "현재 매장은 큰 절감보다 월별 전기요금 변동과 장비 사용 패턴을 정기적으로 확인하는 것이 적합합니다. 일부 장비에 스마트플러그를 연결하면 더 정확한 진단이 가능합니다.",
+        "payback": "Basic 수준",
+        "basis": "월 예상 절감액이 중간 수준이거나 냉장 장비, 제빙기, 에어컨처럼 장시간 작동하는 장비가 포함되어 있습니다.",
+        "value_message": "사용자가 매일 직접 조작하기보다, 월별 전기요금 변화와 장시간 작동 장비를 꾸준히 확인해 다시 요금이 올라가지 않도록 관리하는 방향이 적합합니다."
+    }
+
+def generate_next_actions(recommendations, management_fit, smart_plug_count):
+    actions = []
+
+    for rec in recommendations:
+        title = rec.get("title", "")
+        if "영업시간 외" in title:
+            actions.append("스마트플러그 장비의 폐점 후 운전 여부를 확인하고, 불필요한 장비는 자동 종료 시간을 설정하세요.")
+        elif "냉장" in title:
+            actions.append("냉장고와 쇼케이스의 문 패킹, 방열 공간, 설정온도를 먼저 점검하세요.")
+        elif "냉방" in title or "에어컨" in title:
+            actions.append("에어컨을 동시에 강하게 켜기보다 구역별 순차 운전과 설정온도 조정을 검토하세요.")
+        elif "계약전력" in title:
+            actions.append("최근 최대 사용량 또는 피크 시간대를 확인한 뒤 계약전력 조정 필요성을 검토하세요.")
+        elif "베이커리" in title:
+            actions.append("오븐 예열 시간과 냉방 피크 시간이 겹치지 않도록 운영 스케줄을 조정하세요.")
+
+    if smart_plug_count == 0:
+        actions.append("쇼케이스, 제빙기, 소형 냉장고 중 하나에 스마트플러그를 연결해 실제 장비 사용량을 확인하세요.")
+
+    if management_fit["label"] == "무료 진단 권장":
+        actions.append("다음 달 고지서가 나오면 전력사용량과 요금을 다시 입력해 증가 여부를 확인하세요.")
+    else:
+        actions.append("월별 리포트를 저장해 전기요금과 사용량이 증가하는 시점을 추적하세요.")
+
+    # 중복 제거 후 3개만 반환
+    unique_actions = []
+    for action in actions:
+        if action not in unique_actions:
+            unique_actions.append(action)
+
+    return unique_actions[:3]
+
 def get_priority_label(impact):
     if impact == "high":
         return "우선 조치"
@@ -957,7 +1233,12 @@ def build_report_text(
     equipment_counts,
     recommendations,
     summary,
-    smart_plug_entries=None
+    smart_plug_entries=None,
+    estimated_saving_low=0,
+    estimated_saving_high=0,
+    management_fit=None,
+    next_actions=None,
+    savings_breakdown=None
 ):
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
 
@@ -1011,10 +1292,21 @@ CafeWatt 진단 리포트
 6. 스마트플러그 데이터
 {smart_plug_text}
 
-7. 추천 조치
+7. 월 예상 절감 금액과 관리 적합도
+월 예상 절감 금액: {won(estimated_saving_low)} ~ {won(estimated_saving_high)}
+관리 적합도: {(management_fit or {}).get("label", "확인 필요")}
+권장 관리 단계: {(management_fit or {}).get("tier", "확인 필요")} 수준
+예상 가격 범위: {(management_fit or {}).get("price_range", "확인 필요")}
+판단 근거: {(management_fit or {}).get("basis", "확인 필요")}
+관리 가치: {(management_fit or {}).get("value_message", "전기 사용량이 다시 증가하지 않도록 지속적으로 확인하는 것이 중요합니다.")}
+
+8. 다음 행동
+{chr(10).join([f"{idx + 1}. {action}" for idx, action in enumerate(next_actions or [])])}
+
+9. 추천 조치
 {rec_text}
 
-8. 종합 요약
+10. 종합 요약
 {summary}
 
 안내
@@ -1167,7 +1459,7 @@ if st.sidebar.button("샘플 데이터 적용", use_container_width=True):
 st.sidebar.divider()
 
 st.sidebar.header("매장 기본 정보")
-st.sidebar.caption("업종은 카페로 통합하고, 베이커리 성격은 장비 구성으로 반영합니다.")
+st.sidebar.caption("처음 화면은 일반적인 중형 카페 평균값으로 시작합니다. 실제 매장 조건에 맞게 수정하세요.")
 store_type = "카페"
 
 area_unit, area_value_col = st.sidebar.columns([0.85, 1.15])
@@ -1190,7 +1482,7 @@ schedule_mode = st.sidebar.radio("운영시간 입력 방식", ["간단 입력",
 if schedule_mode == "간단 입력":
     open_time = st.sidebar.time_input("오픈 시간", key="open_time_main")
     close_time = st.sidebar.time_input("마감 시간", key="close_time_main")
-    business_days = st.sidebar.slider("월 영업일수", 0, 31, key="business_days")
+    business_days = st.sidebar.slider("월 영업일수", 1, 31, key="business_days")
 
     open_hours = close_time.hour + close_time.minute / 60 - (open_time.hour + open_time.minute / 60)
     if open_hours <= 0:
@@ -1247,7 +1539,7 @@ monthly_bill_text = st.sidebar.text_input(
 monthly_bill = parse_number_text(monthly_bill_text, fallback=420000)
 st.sidebar.caption(f"입력값: {monthly_bill:,}원")
 
-contract_power = st.sidebar.number_input("계약전력 (kW)", min_value=0.0, max_value=100.0, step=1.0, key="contract_power", help="모르면 0으로 입력하세요.")
+contract_power = st.sidebar.number_input("계약전력 (kW)", min_value=1.0, max_value=100.0, step=1.0, key="contract_power", help="일반 중형 카페는 10~20kW 수준에서 시작하는 경우가 많아 기본값을 15kW로 설정했습니다.")
 
 st.sidebar.divider()
 
@@ -1475,14 +1767,28 @@ recommendations = calculate_recommendations(
     price_per_kwh
 )
 
-estimated_saving_low = monthly_bill * 0.05
-estimated_saving_high = monthly_bill * 0.15
-if energy_score < 55:
-    estimated_saving_low = monthly_bill * 0.08
-    estimated_saving_high = monthly_bill * 0.22
-elif energy_score >= 75:
-    estimated_saving_low = monthly_bill * 0.03
-    estimated_saving_high = monthly_bill * 0.08
+savings_breakdown, estimated_saving_low, estimated_saving_high, savings_explanation = calculate_savings_breakdown(
+    monthly_bill,
+    price_per_kwh,
+    indoor_temp,
+    outdoor_temp,
+    ratio_hour,
+    contract_status,
+    equipment_counts,
+    smart_plug_entries,
+    after_hours_kwh_total
+)
+
+management_fit = calculate_management_fit(
+    estimated_saving_low,
+    estimated_saving_high,
+    monthly_bill,
+    ratio_hour,
+    equipment_counts,
+    smart_plug_count
+)
+
+next_actions = generate_next_actions(recommendations, management_fit, smart_plug_count)
 
 bakery_like = equipment_counts.get("oven", 0) > 0 or equipment_counts.get("proofer", 0) > 0
 if ratio_hour > 1.15:
@@ -1512,16 +1818,46 @@ with kwh_col:
 with bill_col:
     metric_card("월 전기요금", won(monthly_bill), f"평균 단가 {price_per_kwh:.0f}원/kWh")
 
-saving_col, interpretation_col = st.columns([1.25, 2.75])
+saving_col, fit_col = st.columns([1, 1])
 with saving_col:
-    metric_card("월 예상 절감 금액", f"{won(estimated_saving_low)}<br>~ {won(estimated_saving_high)}", "현재 입력값 기준 월 예상 범위", small=True)
-with interpretation_col:
+    metric_card(
+        "월 예상 절감 금액",
+        f"{won(estimated_saving_low)} ~ {won(estimated_saving_high)}",
+        "항목별 절감 가능성을 합산한 월 예상 범위입니다.",
+        small=True
+    )
+with fit_col:
+    fit_badge = class_to_badge(management_fit["level"])
     st.markdown(f"""
-    <div class="card-soft">
-        <div class="metric-title">핵심 해석</div>
-        <p style="margin-bottom: 0;">{summary}</p>
+    <div class="card-white">
+        <div class="metric-title">관리 적합도</div>
+        <div class="metric-value-small">{management_fit["label"]}</div>
+        <p><span class="{fit_badge}">{management_fit["payback"]}</span></p>
+        <p class="small-text">권장 관리 단계는 아래 핵심 해석에서 확인할 수 있습니다.</p>
     </div>
     """, unsafe_allow_html=True)
+
+st.markdown(f"""
+<div class="card-soft">
+    <div class="metric-title">핵심 해석</div>
+    <p>{summary}</p>
+    <p><b>권장 관리 단계: {management_fit["tier"]} 수준</b> · {management_fit["price_range"]}</p>
+    <p>{management_fit["message"]}</p>
+    <p>{management_fit.get("value_message", "CafeWatt의 핵심 가치는 한 번의 절감보다 전기 사용량이 다시 증가하지 않도록 지속적으로 관리하는 데 있습니다.")}</p>
+    <p class="small-text" style="margin-bottom: 0;">CafeWatt는 모든 카페에 유료 관리를 권장하지 않고, 현재 매장의 전기요금, 예상 절감 가능성, 장비 구성, 운영 규모를 기준으로 Free, Basic, Pro, Business 중 적합한 관리 단계를 제안합니다. 위 가격은 향후 서비스 구성을 위한 예시이며, 실제 가격은 기능 범위와 데이터 연동 방식에 따라 달라질 수 있습니다.</p>
+</div>
+""", unsafe_allow_html=True)
+
+st.markdown('<div class="section-title">다음 행동</div>', unsafe_allow_html=True)
+action_cols = st.columns(3)
+for idx, action in enumerate(next_actions):
+    with action_cols[idx]:
+        st.markdown(f"""
+        <div class="card-white">
+            <div class="metric-title">Action {idx + 1}</div>
+            <p style="margin-bottom: 0;">{action}</p>
+        </div>
+        """, unsafe_allow_html=True)
 
 st.divider()
 
@@ -1567,6 +1903,30 @@ with tab1:
         with st.expander("진단 신뢰도 산정 이유"):
             for reason in reliability_reasons:
                 st.write(f"• {reason}")
+
+        st.markdown('<div class="section-title">월 예상 절감 금액 산정 근거</div>', unsafe_allow_html=True)
+        savings_df = pd.DataFrame([
+            {
+                "절감 항목": item["항목"],
+                "월 최소 절감": won(item["월 최소 절감"]),
+                "월 최대 절감": won(item["월 최대 절감"]),
+                "근거": item["근거"]
+            }
+            for item in savings_breakdown
+        ])
+        st.dataframe(savings_df, use_container_width=True, hide_index=True)
+        st.info(savings_explanation)
+
+        with st.expander("관리 단계 기준 보기"):
+            st.write("CafeWatt는 모든 카페에 유료 관리를 권장하지 않습니다. 매장 규모, 절감 가능성, 장비 구성, 스마트플러그 사용 여부를 기준으로 적합한 관리 단계를 제안합니다.")
+            tier_df = pd.DataFrame([
+                {"관리 단계": "Free", "예상 가격": MANAGEMENT_TIERS["free"]["price"], "적합한 대상": MANAGEMENT_TIERS["free"]["target"]},
+                {"관리 단계": "Basic", "예상 가격": MANAGEMENT_TIERS["basic"]["price"], "적합한 대상": MANAGEMENT_TIERS["basic"]["target"]},
+                {"관리 단계": "Pro", "예상 가격": MANAGEMENT_TIERS["pro"]["price"], "적합한 대상": MANAGEMENT_TIERS["pro"]["target"]},
+                {"관리 단계": "Business", "예상 가격": MANAGEMENT_TIERS["business"]["price"], "적합한 대상": MANAGEMENT_TIERS["business"]["target"]},
+            ])
+            st.dataframe(tier_df, use_container_width=True, hide_index=True)
+            st.caption("위 가격은 향후 서비스 구성을 위한 예시이며, 실제 가격은 기능 범위와 데이터 연동 방식에 따라 달라질 수 있습니다.")
 
     with right:
         st.markdown('<div class="section-title">운영 정보</div>', unsafe_allow_html=True)
@@ -1759,7 +2119,12 @@ with tab6:
         equipment_counts,
         recommendations,
         summary,
-        smart_plug_entries
+        smart_plug_entries,
+        estimated_saving_low,
+        estimated_saving_high,
+        management_fit,
+        next_actions,
+        savings_breakdown
     )
 
     st.text_area("리포트 미리보기", report_text, height=420)
